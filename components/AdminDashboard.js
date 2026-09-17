@@ -155,7 +155,11 @@ export default function AdminDashboard() {
         <div className="sched-row" key={i}>
           <span className="sched-time">{time}</span>
           <span className="sched-room">{roomName(e.room_id)}</span>
-          <span className="sched-title">{e.course || 'Class'}{e.teacher ? ` — ${e.teacher}` : ''}</span>
+          <span className="sched-title">
+            {e.batch || e.course || 'Class'}
+            {e.teacher ? ` — ${e.teacher}` : ''}
+            {e.batch && e.course ? <span className="sched-subtitle"> ({e.course})</span> : null}
+          </span>
           <span className="sched-tag sched-tag-class">Regular class</span>
         </div>
       );
@@ -246,9 +250,13 @@ export default function AdminDashboard() {
                       {scheduleForDate(d).length === 0
                         ? <p style={{ color: 'var(--ink-soft)', fontSize: 12 }}>—</p>
                         : scheduleForDate(d).map((e, j) => (
-                          <div className={`sched-chip ${e.type === 'class' ? 'sched-chip-class' : 'sched-chip-booking'}`} key={j}>
+                          <div
+                            className={`sched-chip ${e.type === 'class' ? 'sched-chip-class' : 'sched-chip-booking'}`}
+                            key={j}
+                            title={e.type === 'class' ? [e.batch, e.course, e.teacher].filter(Boolean).join(' · ') : e.purpose}
+                          >
                             <div>{minutesToLabel(e.startMinutes)} · {roomName(e.room_id)}</div>
-                            <div>{e.type === 'class' ? (e.course || 'Class') : e.studentName}</div>
+                            <div>{e.type === 'class' ? (e.batch || e.course || 'Class') : e.studentName}</div>
                           </div>
                         ))}
                     </div>
