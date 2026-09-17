@@ -27,13 +27,52 @@ export default function AdminDashboard() {
   const [filterCourse, setFilterCourse] = useState('');
   const [filterType, setFilterType] = useState('all'); // all | class | booking
 
-  // Recurring classes are few enough (a few hundred rows) to fetch once and
-  // filter client-side, rather than re-querying on every view/date change.
-  useEffect(() => {
-    supabase.from('recurring_blocks').select('*').then(({ data, error }) => {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState({ room_id: '', day_of_week: 'Monday', start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '' });
+  const [addError, setAddError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  function fetchBlocks() {
+    return supabase.from('recurring_blocks').select('*').then(({ data, error }) => {
       if (!error) setAllBlocks(data || []);
     });
-  }, []);
+  }
+
+  // Recurring classes are few enough (a few hundred rows) to fetch once and
+  // filter client-side, rather than re-querying on every view/date change.
+  useEffect(() => { fetchBlocks(); }, []);
+
+  async function handleAddClass(e) {
+    e.preventDefault();
+    setAddError('');
+    if (!addForm.room_id) { setAddError('Pick a room'); return; }
+    if (addForm.start_time >= addForm.end_time) { setAddError('End time must be after start time'); return; }
+    setSaving(true);
+    const res = await fetch('/api/admin/blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...addForm, start_time: addForm.start_time + ':00', end_time: addForm.end_time + ':00' }),
+    });
+    const body = await res.json();
+    setSaving(false);
+    if (!res.ok) { setAddError(body.error || 'Could not save this class.'); return; }
+    setAddForm({ room_id: '', day_of_week: 'Monday', start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '' });
+    setShowAddForm(false);
+    fetchBlocks();
+  }
+
+  async function handleDeleteBlock(id) {
+    if (!window.confirm('Remove this class from the schedule? This cannot be undone.')) return;
+    setDeletingId(id);
+    const res = await fetch('/api/admin/blocks', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setDeletingId(null);
+    if (res.ok) fetchBlocks();
+  }
 
   const rangeStart = useMemo(() => {
     if (view === 'week') return startOfWeek(selectedDate);
@@ -100,6 +139,7 @@ export default function AdminDashboard() {
       .filter(b => b.day_of_week === dayName)
       .map(b => ({
         type: 'class',
+        id: b.id,
         room_id: b.room_id,
         startMinutes: timeToMinutes(b.start_time),
         endMinutes: timeToMinutes(b.end_time),
@@ -161,6 +201,13 @@ export default function AdminDashboard() {
             {e.batch && e.course ? <span className="sched-subtitle"> ({e.course})</span> : null}
           </span>
           <span className="sched-tag sched-tag-class">Regular class</span>
+          <button
+            className="cta ghost sched-remove"
+            onClick={() => handleDeleteBlock(e.id)}
+            disabled={deletingId === e.id}
+          >
+            {deletingId === e.id ? 'Removing…' : 'Remove'}
+          </button>
         </div>
       );
     }
@@ -213,7 +260,57 @@ export default function AdminDashboard() {
               Clear filters
             </button>
           )}
+          <button className="cta" style={{ marginLeft: 'auto' }} onClick={() => setShowAddForm(s => !s)}>
+            {showAddForm ? 'Cancel' : '+ Add regular class'}
+          </button>
         </div>
+
+        {showAddForm && (
+          <form className="panel" onSubmit={handleAddClass}>
+            <h3>New regular class</h3>
+            {addError && <div className="inline-error">{addError}</div>}
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="add-room">Room</label>
+                <select id="add-room" value={addForm.room_id} onChange={e => setAddForm({ ...addForm, room_id: e.target.value })}>
+                  <option value="">Choose a room</option>
+                  {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="add-day">Day of week</label>
+                <select id="add-day" value={addForm.day_of_week} onChange={e => setAddForm({ ...addForm, day_of_week: e.target.value })}>
+                  {DAY_NAMES.filter(d => d !== 'Sunday').concat('Sunday').map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="add-start">Start time</label>
+                <input id="add-start" type="time" value={addForm.start_time} onChange={e => setAddForm({ ...addForm, start_time: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="add-end">End time</label>
+                <input id="add-end" type="time" value={addForm.end_time} onChange={e => setAddForm({ ...addForm, end_time: e.target.value })} />
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="add-batch">Batch name</label>
+              <input id="add-batch" type="text" placeholder="e.g. BHIS - Guitar" value={addForm.batch} onChange={e => setAddForm({ ...addForm, batch: e.target.value })} />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="add-teacher">Teacher</label>
+                <input id="add-teacher" type="text" placeholder="e.g. Pradeep Sir" value={addForm.teacher} onChange={e => setAddForm({ ...addForm, teacher: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="add-course">Course</label>
+                <input id="add-course" type="text" placeholder="e.g. Guitar" value={addForm.course} onChange={e => setAddForm({ ...addForm, course: e.target.value })} />
+              </div>
+            </div>
+            <button className="cta" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save class'}</button>
+          </form>
+        )}
 
         {(view === 'today' || view === 'day') && (
           <div className="panel">
