@@ -20,6 +20,23 @@ const ROOMS = [
 ];
 
 const HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function timeToMinutes(t) {
+  // t looks like "10:30:00" from Postgres
+  const [hh, mm] = t.split(':').map(Number);
+  return hh * 60 + mm;
+}
+
+// An hour slot [h:00, h+1:00) is blocked by a recurring class if their
+// ranges overlap at all — standard interval overlap check.
+function hourOverlapsBlock(h, block) {
+  const slotStart = h * 60;
+  const slotEnd = (h + 1) * 60;
+  const blockStart = timeToMinutes(block.start_time);
+  const blockEnd = timeToMinutes(block.end_time);
+  return blockStart < slotEnd && blockEnd > slotStart;
+}
 
 function fmtHour(h) {
   const ap = h >= 12 ? 'pm' : 'am';
@@ -63,6 +80,7 @@ export default function BookingApp() {
   const [dayIndex, setDayIndex] = useState(0);
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [bookedHours, setBookedHours] = useState([]);
+  const [classHours, setClassHours] = useState({}); // hour -> label, for recurring classes
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', purpose: '' });
   const [errors, setErrors] = useState({});
@@ -74,28 +92,48 @@ export default function BookingApp() {
 
   const room = ROOMS.find(r => r.id === roomId);
 
-  // Load availability whenever the selected room or day changes.
+  // Load availability whenever the selected room or day changes. Two sources
+  // make an hour unavailable: a confirmed one-time booking in `bookings`,
+  // or a recurring weekly class in `recurring_blocks` that overlaps that hour.
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
     setLoadingSlots(true);
-    const dateKey = toDateKey(days[dayIndex]);
-    supabase
-      .from('bookings')
-      .select('hour')
-      .eq('room_id', roomId)
-      .eq('date', dateKey)
-      .eq('status', 'confirmed')
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error(error);
-          setBookedHours([]);
-        } else {
-          setBookedHours(data.map(row => row.hour));
-        }
-        setLoadingSlots(false);
+    const selectedDate = days[dayIndex];
+    const dateKey = toDateKey(selectedDate);
+    const dayName = DAY_NAMES[selectedDate.getDay()];
+
+    Promise.all([
+      supabase
+        .from('bookings')
+        .select('hour')
+        .eq('room_id', roomId)
+        .eq('date', dateKey)
+        .eq('status', 'confirmed'),
+      supabase
+        .from('recurring_blocks')
+        .select('start_time, end_time, label')
+        .eq('room_id', roomId)
+        .eq('day_of_week', dayName),
+    ]).then(([bookingsRes, blocksRes]) => {
+      if (cancelled) return;
+      const bookingHours = bookingsRes.error ? [] : bookingsRes.data.map(r => r.hour);
+      const blocks = blocksRes.error ? [] : blocksRes.data;
+
+      const classMap = {};
+      HOURS.forEach(h => {
+        const match = blocks.find(b => hourOverlapsBlock(h, b));
+        if (match) classMap[h] = match.label || 'Regular class';
       });
+
+      if (bookingsRes.error) console.error(bookingsRes.error);
+      if (blocksRes.error) console.error(blocksRes.error);
+
+      setBookedHours(bookingHours);
+      setClassHours(classMap);
+      setLoadingSlots(false);
+    });
+
     return () => { cancelled = true; };
   }, [roomId, dayIndex, days]);
 
@@ -108,7 +146,7 @@ export default function BookingApp() {
   }
 
   function toggleSlot(h) {
-    if (bookedHours.includes(h)) return;
+    if (bookedHours.includes(h) || classHours[h]) return;
     setSelectedSlots(prev =>
       prev.includes(h) ? prev.filter(x => x !== h) : [...prev, h].sort((a, b) => a - b)
     );
@@ -312,14 +350,20 @@ export default function BookingApp() {
                 <div className="slot-board">
                   {HOURS.map(h => {
                     const isBooked = bookedHours.includes(h);
+                    const isClass = Boolean(classHours[h]);
+                    const isBlocked = isBooked || isClass;
                     const isSel = selectedSlots.includes(h);
+                    const label = isClass
+                      ? `${fmtHour(h)} — regular class (${classHours[h]})`
+                      : `${fmtHour(h)} ${isBooked ? 'unavailable' : isSel ? 'selected' : 'available'}`;
                     return (
                       <div
                         key={h}
-                        className={`slot ${isBooked ? 'booked' : ''} ${isSel ? 'selected' : ''}`}
-                        tabIndex={isBooked ? -1 : 0}
+                        className={`slot ${isBooked ? 'booked' : ''} ${isClass ? 'class-block' : ''} ${isSel ? 'selected' : ''}`}
+                        tabIndex={isBlocked ? -1 : 0}
                         role="button"
-                        aria-label={`${fmtHour(h)} ${isBooked ? 'unavailable' : isSel ? 'selected' : 'available'}`}
+                        aria-label={label}
+                        title={isClass ? classHours[h] : undefined}
                         onClick={() => toggleSlot(h)}
                         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSlot(h); } }}
                       >
@@ -333,6 +377,7 @@ export default function BookingApp() {
                 <span><span className="dot" style={{ background: 'var(--paper)', border: '1px solid var(--line)' }} />Open</span>
                 <span><span className="dot" style={{ background: 'var(--brass)' }} />Selected</span>
                 <span><span className="dot" style={{ background: 'var(--maroon-bg)', border: '1px solid var(--maroon)' }} />Booked</span>
+                <span><span className="dot" style={{ background: 'var(--paper-dim)', border: '1px solid var(--ink-soft)' }} />Regular class</span>
               </div>
             </div>
             <div className="summary-bar">
