@@ -83,6 +83,7 @@ export default function BookingApp() {
   const [bookedHours, setBookedHours] = useState([]);
   const [classHours, setClassHours] = useState({}); // hour -> label, for recurring classes
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
   const [form, setForm] = useState({ name: '', email: '', phone: '', purpose: '' });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -130,6 +131,12 @@ export default function BookingApp() {
       setBookedHours(bookingHours);
       setClassHours(classMap);
       setLoadingSlots(false);
+      setAvailabilityError(bookingsRes.error ? 'Could not load availability. Please refresh and try again.' : '');
+    }).catch(err => {
+      if (cancelled) return;
+      console.error(err);
+      setLoadingSlots(false);
+      setAvailabilityError('Could not load availability. Please refresh and try again.');
     });
 
     return () => { cancelled = true; };
@@ -344,6 +351,8 @@ export default function BookingApp() {
               <h3 style={{ marginTop: '1.6rem' }}>Available hours</h3>
               {loadingSlots ? (
                 <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Checking availability&hellip;</p>
+              ) : availabilityError ? (
+                <div className="inline-error">{availabilityError}</div>
               ) : (
                 <div className="slot-board">
                   {HOURS.map(h => {
