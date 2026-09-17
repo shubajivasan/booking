@@ -389,6 +389,7 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
 .sched-time{ font-family:'JetBrains Mono',monospace; color:var(--ink-soft); }
 .sched-room{ font-weight:500; }
 .sched-title{ color:var(--ink); }
+.sched-subtitle{ color:var(--ink-soft); font-size:12px; }
 .sched-tag{
   font-family:'JetBrains Mono',monospace;
   font-size:10px;
