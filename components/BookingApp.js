@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { blockAppliesOnDate } from '../lib/schedule';
 
 const ROOMS = [
   { id: 'R1', name: 'Room No 1', type: 'Practice room', code: '01', capacity: 12, price: 300, desc: 'Practice room set up for individual and small-group sessions.' },
@@ -104,15 +105,12 @@ export default function BookingApp() {
     const dayName = DAY_NAMES[selectedDate.getDay()];
 
     Promise.all([
-      supabase
-        .from('bookings')
-        .select('hour')
-        .eq('room_id', roomId)
-        .eq('date', dateKey)
-        .eq('status', 'confirmed'),
+      fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`)
+        .then(r => r.json())
+        .then(body => ({ data: (body.bookedHours || []).map(h => ({ hour: h })), error: body.error })),
       supabase
         .from('recurring_blocks')
-        .select('start_time, end_time, label')
+        .select('start_time, end_time, label, start_date, end_date')
         .eq('room_id', roomId)
         .eq('day_of_week', dayName),
     ]).then(([bookingsRes, blocksRes]) => {
@@ -122,7 +120,7 @@ export default function BookingApp() {
 
       const classMap = {};
       HOURS.forEach(h => {
-        const match = blocks.find(b => hourOverlapsBlock(h, b));
+        const match = blocks.find(b => hourOverlapsBlock(h, b) && blockAppliesOnDate(b, dateKey));
         if (match) classMap[h] = match.label || 'Regular class';
       });
 
@@ -166,46 +164,45 @@ export default function BookingApp() {
     setSubmitError('');
 
     const dateKey = toDateKey(days[dayIndex]);
-    const rows = selectedSlots.map(hour => ({
-      room_id: roomId,
-      date: dateKey,
-      hour,
-      student_name: form.name.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim() || null,
-      purpose: form.purpose.trim() || null,
-      amount: room.price,
-      status: 'confirmed',
-      // TODO(payment): once Razorpay is wired in, this insert moves into an
-      // API route that (1) inserts status:'pending', (2) creates a Razorpay
-      // order, and only flips these rows to 'confirmed' inside the webhook
-      // after payment is verified server-side. See backend-architecture-plan.md.
-    }));
 
-    const { data, error } = await supabase.from('bookings').insert(rows).select('id');
+    const res = await fetch('/api/create-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        roomId,
+        date: dateKey,
+        hours: selectedSlots,
+        price: room.price,
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim() || null,
+        purpose: form.purpose.trim() || null,
+        // TODO(payment): once Razorpay is wired in, this call moves into a
+        // flow that (1) creates a 'pending' hold via this same API, (2)
+        // creates a Razorpay order, and only flips status to 'confirmed'
+        // inside the webhook after payment is verified server-side.
+        // See backend-architecture-plan.md.
+      }),
+    });
+    const body = await res.json();
 
-    if (error) {
+    if (!res.ok) {
       setSubmitting(false);
-      if (error.code === '23505') {
+      if (res.status === 409) {
         // Someone else booked one of these exact hours in the moment between
         // this page loading and the button being clicked. Refresh availability.
-        setSubmitError('One or more of those hours were just booked by someone else. Please pick different slots.');
-        const { data: freshBooked } = await supabase
-          .from('bookings')
-          .select('hour')
-          .eq('room_id', roomId)
-          .eq('date', dateKey)
-          .eq('status', 'confirmed');
-        setBookedHours((freshBooked || []).map(r => r.hour));
+        setSubmitError(body.error || 'One or more of those hours were just booked by someone else. Please pick different slots.');
+        const freshRes = await fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`).then(r => r.json());
+        setBookedHours(freshRes.bookedHours || []);
         setSelectedSlots([]);
         setView('room');
       } else {
-        setSubmitError('Something went wrong saving your booking. Please try again.');
+        setSubmitError(body.error || 'Something went wrong saving your booking. Please try again.');
       }
       return;
     }
 
-    const ids = data.map(r => r.id);
+    const ids = body.ids;
     try {
       const existing = JSON.parse(localStorage.getItem(MY_BOOKINGS_KEY) || '[]');
       localStorage.setItem(MY_BOOKINGS_KEY, JSON.stringify([...existing, ...ids]));
@@ -241,12 +238,13 @@ export default function BookingApp() {
       setMyBookingsLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .in('id', ids)
-      .order('date', { ascending: false });
-    if (!error) setMyBookings(data || []);
+    const res = await fetch('/api/my-bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const body = await res.json();
+    if (res.ok) setMyBookings(body.bookings || []);
     setMyBookingsLoading(false);
   }
 
