@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import {
   HOURS, DAY_NAMES, ROOMS, timeToMinutes, minutesToLabel, fmtHour,
-  toDateKey, startOfWeek, addDays, roomName,
+  toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
 } from '../lib/schedule';
 
 function monthLabel(d) {
@@ -28,10 +28,20 @@ export default function AdminDashboard() {
   const [filterType, setFilterType] = useState('all'); // all | class | booking
 
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ room_id: '', day_of_week: 'Monday', start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '' });
+  const [addForm, setAddForm] = useState({
+    room_id: '', days: [], start_time: '10:00', end_time: '11:00',
+    batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
+  });
   const [addError, setAddError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+
+  function toggleFormDay(day) {
+    setAddForm(f => ({
+      ...f,
+      days: f.days.includes(day) ? f.days.filter(d => d !== day) : [...f.days, day],
+    }));
+  }
 
   function fetchBlocks() {
     return supabase.from('recurring_blocks').select('*').then(({ data, error }) => {
@@ -47,17 +57,32 @@ export default function AdminDashboard() {
     e.preventDefault();
     setAddError('');
     if (!addForm.room_id) { setAddError('Pick a room'); return; }
+    if (addForm.days.length === 0) { setAddError('Pick at least one day of the week'); return; }
     if (addForm.start_time >= addForm.end_time) { setAddError('End time must be after start time'); return; }
+    if (!addForm.ongoing && !addForm.end_date) { setAddError('Pick an end date, or mark this as ongoing'); return; }
+    if (addForm.start_date && !addForm.ongoing && addForm.end_date && addForm.start_date > addForm.end_date) {
+      setAddError('End date must be after start date'); return;
+    }
     setSaving(true);
     const res = await fetch('/api/admin/blocks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...addForm, start_time: addForm.start_time + ':00', end_time: addForm.end_time + ':00' }),
+      body: JSON.stringify({
+        room_id: addForm.room_id,
+        days: addForm.days,
+        start_time: addForm.start_time + ':00',
+        end_time: addForm.end_time + ':00',
+        batch: addForm.batch,
+        teacher: addForm.teacher,
+        course: addForm.course,
+        start_date: addForm.start_date || null,
+        end_date: addForm.ongoing ? null : addForm.end_date,
+      }),
     });
     const body = await res.json();
     setSaving(false);
     if (!res.ok) { setAddError(body.error || 'Could not save this class.'); return; }
-    setAddForm({ room_id: '', day_of_week: 'Monday', start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '' });
+    setAddForm({ room_id: '', days: [], start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
     setShowAddForm(false);
     fetchBlocks();
   }
@@ -95,14 +120,12 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setLoading(true);
-    supabase
-      .from('bookings')
-      .select('*')
-      .gte('date', toDateKey(rangeStart))
-      .lte('date', toDateKey(rangeEnd))
-      .eq('status', 'confirmed')
-      .then(({ data, error }) => {
-        if (!error) setBookings(data || []);
+    const from = toDateKey(rangeStart);
+    const to = toDateKey(rangeEnd);
+    fetch(`/api/admin/bookings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .then(r => r.json())
+      .then(body => {
+        setBookings(body.bookings || []);
         setLoading(false);
       });
   }, [rangeStart, rangeEnd]);
@@ -136,7 +159,7 @@ export default function AdminDashboard() {
     const dayName = DAY_NAMES[date.getDay()];
 
     const classEntries = allBlocks
-      .filter(b => b.day_of_week === dayName)
+      .filter(b => b.day_of_week === dayName && blockAppliesOnDate(b, dateKey))
       .map(b => ({
         type: 'class',
         id: b.id,
@@ -147,6 +170,8 @@ export default function AdminDashboard() {
         course: b.course,
         batch: b.batch,
         label: b.label,
+        start_date: b.start_date,
+        end_date: b.end_date,
       }));
 
     const bookingEntries = bookings
@@ -199,6 +224,9 @@ export default function AdminDashboard() {
             {e.batch || e.course || 'Class'}
             {e.teacher ? ` — ${e.teacher}` : ''}
             {e.batch && e.course ? <span className="sched-subtitle"> ({e.course})</span> : null}
+            {(e.start_date || e.end_date) ? (
+              <span className="sched-subtitle"> · {e.start_date || 'any date'} → {e.end_date || 'ongoing'}</span>
+            ) : null}
           </span>
           <span className="sched-tag sched-tag-class">Regular class</span>
           <button
@@ -277,11 +305,16 @@ export default function AdminDashboard() {
                   {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
-              <div className="field">
-                <label htmlFor="add-day">Day of week</label>
-                <select id="add-day" value={addForm.day_of_week} onChange={e => setAddForm({ ...addForm, day_of_week: e.target.value })}>
-                  {DAY_NAMES.filter(d => d !== 'Sunday').concat('Sunday').map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
+            </div>
+            <div className="field">
+              <label>Days of week</label>
+              <div className="day-checkboxes">
+                {DAY_NAMES.filter(d => d !== 'Sunday').concat('Sunday').map(d => (
+                  <label key={d} className={`day-checkbox ${addForm.days.includes(d) ? 'checked' : ''}`}>
+                    <input type="checkbox" checked={addForm.days.includes(d)} onChange={() => toggleFormDay(d)} />
+                    {d.slice(0, 3)}
+                  </label>
+                ))}
               </div>
             </div>
             <div className="field-row">
@@ -308,6 +341,26 @@ export default function AdminDashboard() {
                 <input id="add-course" type="text" placeholder="e.g. Guitar" value={addForm.course} onChange={e => setAddForm({ ...addForm, course: e.target.value })} />
               </div>
             </div>
+            <div className="field">
+              <label htmlFor="add-startdate">Start date (optional)</label>
+              <input id="add-startdate" type="date" value={addForm.start_date} onChange={e => setAddForm({ ...addForm, start_date: e.target.value })} />
+            </div>
+            <div className="field">
+              <label className="ongoing-toggle">
+                <input
+                  type="checkbox"
+                  checked={addForm.ongoing}
+                  onChange={e => setAddForm({ ...addForm, ongoing: e.target.checked, end_date: e.target.checked ? '' : addForm.end_date })}
+                />
+                Regular class — runs indefinitely until removed
+              </label>
+            </div>
+            {!addForm.ongoing && (
+              <div className="field">
+                <label htmlFor="add-enddate">End date</label>
+                <input id="add-enddate" type="date" value={addForm.end_date} onChange={e => setAddForm({ ...addForm, end_date: e.target.value })} />
+              </div>
+            )}
             <button className="cta" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save class'}</button>
           </form>
         )}
