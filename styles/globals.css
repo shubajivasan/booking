@@ -377,7 +377,7 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
 .sched-list{ display:flex; flex-direction:column; gap:8px; }
 .sched-row{
   display:grid;
-  grid-template-columns:110px 140px 1fr auto;
+  grid-template-columns:110px 140px 1fr auto auto;
   align-items:center;
   gap:12px;
   padding:10px 12px;
@@ -386,6 +386,7 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   background:var(--card);
   font-size:13px;
 }
+.sched-remove{ padding:6px 12px; font-size:12px; }
 .sched-time{ font-family:'JetBrains Mono',monospace; color:var(--ink-soft); }
 .sched-room{ font-weight:500; }
 .sched-title{ color:var(--ink); }
