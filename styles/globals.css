@@ -364,6 +364,107 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   margin-bottom:1rem;
 }
 
+/* ---------- admin dashboard ---------- */
+.panel select{
+  font-family:'Inter',sans-serif;
+  font-size:13px;
+  padding:9px 12px;
+  border-radius:7px;
+  border:1px solid var(--line);
+  background:var(--paper);
+  color:var(--ink);
+}
+.sched-list{ display:flex; flex-direction:column; gap:8px; }
+.sched-row{
+  display:grid;
+  grid-template-columns:110px 140px 1fr auto;
+  align-items:center;
+  gap:12px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--card);
+  font-size:13px;
+}
+.sched-time{ font-family:'JetBrains Mono',monospace; color:var(--ink-soft); }
+.sched-room{ font-weight:500; }
+.sched-title{ color:var(--ink); }
+.sched-tag{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  padding:4px 8px;
+  border-radius:999px;
+  white-space:nowrap;
+}
+.sched-tag-class{ background:var(--paper-dim); color:var(--ink-soft); }
+.sched-tag-booking{ background:var(--sage-bg); color:var(--sage); }
+
+.week-grid{
+  display:grid;
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:8px;
+}
+.week-day{ border:1px solid var(--line); border-radius:8px; padding:8px; min-height:120px; }
+.week-day-head{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  margin-bottom:8px;
+}
+.sched-list-compact{ gap:6px; }
+.sched-chip{
+  font-size:11px;
+  padding:6px 8px;
+  border-radius:6px;
+  line-height:1.4;
+}
+.sched-chip-class{ background:var(--paper-dim); color:var(--ink-soft); }
+.sched-chip-booking{ background:var(--sage-bg); color:var(--sage); }
+
+.month-grid{
+  display:grid;
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:6px;
+}
+.month-grid-head{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  text-align:center;
+  padding-bottom:4px;
+}
+.month-cell{
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--card);
+  padding:8px 6px;
+  min-height:70px;
+  text-align:left;
+  cursor:pointer;
+  font-family:'Inter',sans-serif;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.month-cell:hover{ background:var(--paper-dim); }
+.month-cell-dim{ opacity:0.4; }
+.month-cell-num{ font-size:12px; font-weight:500; }
+.month-cell-count{
+  font-size:10px;
+  padding:2px 5px;
+  border-radius:4px;
+  width:fit-content;
+}
+
+@media (max-width:720px){
+  .week-grid{ grid-template-columns:repeat(2,1fr); }
+  .sched-row{ grid-template-columns:1fr; gap:4px; }
+}
+
 @media (max-width:520px){
   .field-row{ grid-template-columns:1fr; }
   header{ padding:1.6rem 1.2rem 1.2rem; }
