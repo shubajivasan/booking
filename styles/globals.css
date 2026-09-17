@@ -374,6 +374,31 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   background:var(--paper);
   color:var(--ink);
 }
+.day-checkboxes{ display:flex; gap:8px; flex-wrap:wrap; }
+.day-checkbox{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  padding:8px 12px;
+  border-radius:7px;
+  border:1px solid var(--line);
+  background:var(--paper);
+  cursor:pointer;
+  user-select:none;
+}
+.day-checkbox.checked{ background:var(--brass); color:#fff; border-color:var(--brass-dark); }
+.day-checkbox input{ accent-color:var(--brass-dark); }
+.ongoing-toggle{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  font-weight:500;
+  color:var(--ink-soft);
+  cursor:pointer;
+}
+.ongoing-toggle input{ width:16px; height:16px; accent-color:var(--brass-dark); }
 .sched-list{ display:flex; flex-direction:column; gap:8px; }
 .sched-row{
   display:grid;
