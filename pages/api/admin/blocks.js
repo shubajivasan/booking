@@ -1,17 +1,25 @@
-import { isAdminAuthenticated } from '../../../lib/adminAuth';
+import { getAdminUser } from '../../../lib/adminAuth';
 import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export default async function handler(req, res) {
-  // Both the head-office admin dashboard and the branch staff portal
-  // manage the same recurring_blocks table through this one route — they're
-  // separate logins (separate passwords, separate cookies), but the action
-  // itself (add/remove a regular class) is identical either way.
-  if (!isAdminAuthenticated(req) && !isStaffAuthenticated(req)) {
+  // Both the head-office dashboard and the branch staff portal manage the
+  // same recurring_blocks table through this one route.
+  const user = await getAdminUser(req);
+  const isBranchStaff = isStaffAuthenticated(req); // the separate branches.* portal login
+
+  if (!user && !isBranchStaff) {
     return res.status(401).json({ error: 'Sign in to make changes.' });
   }
+
+  // Branch-portal staff (a different login system entirely) keep their
+  // existing full access to add/remove within their own portal. For the
+  // head-office dashboard, permissions depend on role:
+  //   staff  -> can add a class, but not edit or remove one
+  //   admin / super_admin -> can add, edit, and remove
+  const canEditOrDelete = isBranchStaff || (user && user.role !== 'staff');
 
   if (req.method === 'GET') {
     const { data, error } = await supabaseAdmin.from('recurring_blocks').select('*');
@@ -22,8 +30,6 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { room_id, days, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
 
-    // Accept either the new `days` array or the old single `day_of_week`
-    // string, so nothing that already calls this route breaks.
     const dayList = Array.isArray(days) && days.length ? days : (day_of_week ? [day_of_week] : []);
 
     if (!room_id || dayList.length === 0 || !start_time || !end_time) {
@@ -65,6 +71,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
+    if (!canEditOrDelete) {
+      return res.status(403).json({ error: 'Only an admin can edit a regular class.' });
+    }
     const { id, room_id, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required.' });
     if (!room_id || !day_of_week || !start_time || !end_time) {
@@ -101,6 +110,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
+    if (!canEditOrDelete) {
+      return res.status(403).json({ error: 'Only an admin can remove a regular class.' });
+    }
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required.' });
 
