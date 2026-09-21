@@ -492,6 +492,31 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   .sched-row{ grid-template-columns:1fr; gap:4px; }
 }
 
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(11,19,32,0.5);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:1.5rem;
+  z-index:50;
+}
+.modal-panel{
+  max-width:420px;
+  width:100%;
+  margin:0;
+}
+.modal-panel h3{
+  font-family:'Playfair Display',serif;
+  font-size:19px;
+  font-weight:600;
+  text-transform:none;
+  letter-spacing:0;
+  color:var(--ink);
+  margin:0 0 4px;
+}
+
 @media (max-width:520px){
   .field-row{ grid-template-columns:1fr; }
   header{ padding:1.6rem 1.2rem 1.2rem; }
