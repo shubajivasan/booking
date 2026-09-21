@@ -1,32 +1,35 @@
-// Deliberately simple, single-shared-password auth — enough to keep the
-// schedule dashboard off Google and out of random hands, without building a
-// full user-account system for a handful of staff members. If you need
-// per-staff logins later, this is the file to replace with something like
-// Supabase Auth.
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { verifyPassword } from '../../lib/passwordHash';
+import { createSessionToken } from '../../lib/sessionToken';
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { password } = req.body || {};
-  const expected = process.env.ADMIN_PASSWORD;
-  const secret = process.env.ADMIN_SESSION_SECRET;
-
-  if (!expected || !secret) {
-    return res.status(500).json({ error: 'Admin login is not configured on the server yet.' });
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  if (password !== expected) {
-    return res.status(401).json({ error: 'Wrong password' });
+  const { data: user, error } = await supabaseAdmin
+    .from('staff_users')
+    .select('*')
+    .eq('email', String(email).trim().toLowerCase())
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+
+  // Deliberately the same error message whether the email doesn't exist or
+  // the password is wrong — doesn't tell a guesser which one they got right.
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Wrong email or password' });
   }
 
-  // The cookie's value is a secret only the server knows, set only after a
-  // correct password — the browser can't read or forge it (httpOnly), and a
-  // guesser can't produce it without already knowing ADMIN_SESSION_SECRET.
+  const token = createSessionToken(user.id);
   res.setHeader(
     'Set-Cookie',
-    `admin_session=${secret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${
+    `admin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${
       process.env.NODE_ENV === 'production' ? '; Secure' : ''
     }`
   );
-  res.status(200).json({ ok: true });
+  res.status(200).json({ ok: true, name: user.name });
 }
