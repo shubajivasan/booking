@@ -1,11 +1,22 @@
 import { isAdminAuthenticated } from '../../../lib/adminAuth';
+import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export default async function handler(req, res) {
-  if (!isAdminAuthenticated(req)) {
-    return res.status(401).json({ error: 'Sign in as staff to make changes.' });
+  // Both the head-office admin dashboard and the branch staff portal
+  // manage the same recurring_blocks table through this one route — they're
+  // separate logins (separate passwords, separate cookies), but the action
+  // itself (add/remove a regular class) is identical either way.
+  if (!isAdminAuthenticated(req) && !isStaffAuthenticated(req)) {
+    return res.status(401).json({ error: 'Sign in to make changes.' });
+  }
+
+  if (req.method === 'GET') {
+    const { data, error } = await supabaseAdmin.from('recurring_blocks').select('*');
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ blocks: data });
   }
 
   if (req.method === 'POST') {
