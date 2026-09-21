@@ -59,8 +59,10 @@ function dayLabel(d, i) {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
 }
 
-function currency(n) {
-  return '\u20B9' + n.toLocaleString('en-IN');
+function timeRangeLabel(hours) {
+  if (!hours || hours.length === 0) return '';
+  const sorted = [...hours].sort((a, b) => a - b);
+  return `${fmtHour(sorted[0])} \u2013 ${fmtHour(sorted[sorted.length - 1] + 1)}`;
 }
 
 const MY_BOOKINGS_KEY = 'ajivasan_my_booking_ids';
@@ -314,7 +316,6 @@ export default function BookingApp() {
                       <span>SEATS {r.capacity}</span>
                       <span>9AM&ndash;9PM</span>
                     </div>
-                    <p className="room-price">{currency(r.price)}<span> / hour</span></p>
                   </div>
                 </div>
               ))}
@@ -389,7 +390,7 @@ export default function BookingApp() {
             </div>
             <div className="summary-bar">
               <div className="total">
-                {currency(selectedSlots.length * room.price)}
+                {selectedSlots.length > 0 ? timeRangeLabel(selectedSlots) : '\u2014'}
                 <span>{selectedSlots.length} hour{selectedSlots.length === 1 ? '' : 's'} selected</span>
               </div>
               <button className="cta" disabled={selectedSlots.length === 0} onClick={() => setView('form')}>
@@ -434,7 +435,7 @@ export default function BookingApp() {
             </div>
             <div className="summary-bar">
               <div className="total">
-                {currency(selectedSlots.length * room.price)}
+                {timeRangeLabel(selectedSlots)}
                 <span>{selectedSlots.length} hour{selectedSlots.length === 1 ? '' : 's'} &middot; {room.name}</span>
               </div>
               <button className="cta" disabled={submitting} onClick={handleConfirmBooking}>
@@ -455,7 +456,6 @@ export default function BookingApp() {
               <div><span>Date</span><b>{confirmation.date}</b></div>
               <div><span>Hours</span><b>{confirmation.hours}</b></div>
               <div><span>Booked by</span><b>{confirmation.name}</b></div>
-              <div><span>Amount</span><b>{currency(confirmation.total)}</b></div>
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button className="cta ghost" onClick={() => { setView('browse'); setRoomId(null); setSelectedSlots([]); setForm({ name: '', email: '', phone: '', purpose: '' }); }}>
@@ -487,11 +487,11 @@ export default function BookingApp() {
                         <span className="code">{r ? r.code : b.room_id}</span>
                         <div className="meta">
                           <b>{r ? r.name : b.room_id}</b><br />
-                          {b.date} &middot; {fmtHour(b.hour)}
+                          {b.date}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span className="meta">{currency(b.amount)}</span>
+                        <span className="meta">{fmtHour(b.hour)} \u2013 {fmtHour(b.hour + 1)}</span>
                         <span className="status-pill">{b.status}</span>
                       </div>
                     </div>
