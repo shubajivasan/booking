@@ -28,6 +28,7 @@ export default function AdminDashboard() {
   const [filterType, setFilterType] = useState('all'); // all | class | booking
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [convertingBooking, setConvertingBooking] = useState(null); // the booking row being turned into a class, if any
   const [addForm, setAddForm] = useState({
     room_id: '', days: [], start_time: '10:00', end_time: '11:00',
     batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
@@ -41,6 +42,40 @@ export default function AdminDashboard() {
       ...f,
       days: f.days.includes(day) ? f.days.filter(d => d !== day) : [...f.days, day],
     }));
+  }
+
+  // Parsed as local date parts (not `new Date(dateKey)`, which reads the
+  // string as UTC midnight and can shift the day in some time zones).
+  function dayNameFromDateKey(dateKey) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    return DAY_NAMES[new Date(y, m - 1, d).getDay()];
+  }
+  function hourToTimeInput(h) {
+    return `${String(h).padStart(2, '0')}:00`;
+  }
+
+  function openConvert(bk) {
+    setConvertingBooking(bk);
+    setAddForm({
+      room_id: bk.room_id,
+      days: [dayNameFromDateKey(bk.date)],
+      start_time: hourToTimeInput(bk.hour),
+      end_time: hourToTimeInput(bk.hour + 1),
+      batch: bk.purpose || '',
+      teacher: '',
+      course: '',
+      start_date: bk.date,
+      ongoing: true,
+      end_date: '',
+    });
+    setAddError('');
+    setShowAddForm(true);
+  }
+
+  function closeAddForm() {
+    setShowAddForm(false);
+    setConvertingBooking(null);
+    setAddForm({ room_id: '', days: [], start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
   }
 
   function fetchBlocks() {
@@ -82,8 +117,21 @@ export default function AdminDashboard() {
     const body = await res.json();
     setSaving(false);
     if (!res.ok) { setAddError(body.error || 'Could not save this class.'); return; }
-    setAddForm({ room_id: '', days: [], start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
-    setShowAddForm(false);
+
+    if (convertingBooking) {
+      // The class now covers this slot going forward — remove the original
+      // one-time booking so it isn't double-counted as both a class and a
+      // booking. If this delete happens to fail, the class was still
+      // created successfully; the old booking can be removed by hand.
+      await fetch('/api/admin/bookings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: convertingBooking.id }),
+      }).catch(() => {});
+      fetchBookings();
+    }
+
+    closeAddForm();
     fetchBlocks();
   }
 
@@ -301,6 +349,9 @@ export default function AdminDashboard() {
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
+            Convert to class
+          </button>
           <button className="cta ghost sched-remove" onClick={() => openEdit(e)}>
             Reschedule
           </button>
@@ -355,14 +406,20 @@ export default function AdminDashboard() {
               Clear filters
             </button>
           )}
-          <button className="cta" style={{ marginLeft: 'auto' }} onClick={() => setShowAddForm(s => !s)}>
+          <button className="cta" style={{ marginLeft: 'auto' }} onClick={() => (showAddForm ? closeAddForm() : setShowAddForm(true))}>
             {showAddForm ? 'Cancel' : '+ Add regular class'}
           </button>
         </div>
 
         {showAddForm && (
           <form className="panel" onSubmit={handleAddClass}>
-            <h3>New regular class</h3>
+            <h3>{convertingBooking ? 'Convert booking to regular class' : 'New regular class'}</h3>
+            {convertingBooking && (
+              <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: -8, marginBottom: '1rem' }}>
+                Was: {convertingBooking.studentName}{convertingBooking.purpose ? ` — ${convertingBooking.purpose}` : ''} on {convertingBooking.date}.
+                Pick every day of the week this class actually runs on, and how far back/forward it should apply.
+              </p>
+            )}
             {addError && <div className="inline-error">{addError}</div>}
             <div className="field-row">
               <div className="field">
@@ -428,7 +485,9 @@ export default function AdminDashboard() {
                 <input id="add-enddate" type="date" value={addForm.end_date} onChange={e => setAddForm({ ...addForm, end_date: e.target.value })} />
               </div>
             )}
-            <button className="cta" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save class'}</button>
+            <button className="cta" type="submit" disabled={saving}>
+              {saving ? 'Saving…' : convertingBooking ? 'Convert to regular class' : 'Save class'}
+            </button>
           </form>
         )}
 
