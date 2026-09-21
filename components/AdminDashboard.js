@@ -780,10 +780,6 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
               <button className="cta ghost no-print" onClick={() => shiftDate(1)}>Next &rarr;</button>
             </div>
-            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={exportDay}>Export to Excel</button>
-              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
-            </div>
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="sched-list">
                 {scheduleForDate(selectedDate).length === 0
@@ -791,6 +787,10 @@ export default function AdminDashboard() {
                   : scheduleForDate(selectedDate).map(renderEntry)}
               </div>
             )}
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
+              <button className="cta ghost" onClick={exportDay}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
+            </div>
           </div>
         )}
 
@@ -802,10 +802,6 @@ export default function AdminDashboard() {
                 {shortDayLabel(weekDays[0])} – {shortDayLabel(weekDays[6])}
               </h3>
               <button className="cta ghost no-print" onClick={() => shiftDate(7)}>Next week &rarr;</button>
-            </div>
-            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={exportWeek}>Export to Excel</button>
-              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="week-grid">
@@ -830,6 +826,10 @@ export default function AdminDashboard() {
                 ))}
               </div>
             )}
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
+              <button className="cta ghost" onClick={exportWeek}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
+            </div>
           </div>
         )}
 
@@ -883,10 +883,6 @@ export default function AdminDashboard() {
                 }}
               />
             </div>
-            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
-              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
-            </div>
             {allBookingsTruncated && (
               <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
                 Showing the most recent 1000 bookings. Use search or the Room filter above to narrow this down.
@@ -934,6 +930,10 @@ export default function AdminDashboard() {
                 {filteredAllBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings match.</p>}
               </div>
             )}
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
+              <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
+            </div>
           </div>
         )}
 
