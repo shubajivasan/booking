@@ -519,6 +519,22 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   .sched-row{ grid-template-columns:1fr; gap:4px; }
 }
 
+@media print {
+  .no-print, .sched-remove, form.panel, .modal-backdrop {
+    display:none !important;
+  }
+  body{ background:#fff; color:#000; }
+  .panel{ border:1px solid #ccc; box-shadow:none; background:#fff; break-inside:avoid; }
+  .sched-row{
+    grid-template-columns:90px 130px 1fr auto;
+    border-bottom:1px solid #ddd;
+    background:#fff;
+    break-inside:avoid;
+  }
+  .sched-tag{ background:#eee !important; color:#333 !important; }
+  main{ max-width:100%; padding:0; }
+}
+
 .modal-backdrop{
   position:fixed;
   inset:0;
