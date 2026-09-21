@@ -98,7 +98,11 @@ export default function AdminDashboard() {
   function fetchBlocks() {
     return fetch('/api/admin/blocks')
       .then(r => r.json())
-      .then(body => setAllBlocks(body.blocks || []));
+      .then(body => {
+        if (body.error) { console.error('fetchBlocks error:', body.error); setAllBlocks([]); return; }
+        setAllBlocks(body.blocks || []);
+      })
+      .catch(err => { console.error('fetchBlocks failed:', err); setAllBlocks([]); });
   }
 
   // Recurring classes are few enough (a few hundred rows) to fetch once and
