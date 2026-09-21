@@ -15,7 +15,7 @@ function shortDayLabel(d) {
 }
 
 export default function AdminDashboard() {
-  const [view, setView] = useState('today'); // today | day | week | month | all
+  const [view, setView] = useState('today'); // today | day | week | month | all | staff
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
@@ -219,6 +219,60 @@ export default function AdminDashboard() {
   const [allBookingsLoading, setAllBookingsLoading] = useState(false);
   const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
   const [allBookingsSearch, setAllBookingsSearch] = useState('');
+
+  const [staffList, setStaffList] = useState([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });
+  const [staffError, setStaffError] = useState('');
+  const [staffSaving, setStaffSaving] = useState(false);
+  const [staffDeletingId, setStaffDeletingId] = useState(null);
+
+  function fetchStaff() {
+    setStaffLoading(true);
+    fetch('/api/admin/staff')
+      .then(r => r.json())
+      .then(body => { setStaffList(body.staff || []); setStaffLoading(false); })
+      .catch(() => setStaffLoading(false));
+  }
+
+  useEffect(() => { if (view === 'staff') fetchStaff(); }, [view]);
+
+  async function handleAddStaff(e) {
+    e.preventDefault();
+    setStaffError('');
+    if (!staffForm.name || !staffForm.email || !staffForm.password) {
+      setStaffError('Name, email and password are all required.'); return;
+    }
+    if (staffForm.password.length < 8) {
+      setStaffError('Password must be at least 8 characters.'); return;
+    }
+    setStaffSaving(true);
+    const res = await fetch('/api/admin/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(staffForm),
+    });
+    const body = await res.json();
+    setStaffSaving(false);
+    if (!res.ok) { setStaffError(body.error || 'Could not add this staff member.'); return; }
+    setStaffForm({ name: '', email: '', password: '' });
+    fetchStaff();
+  }
+
+  async function handleDeleteStaff(id) {
+    if (!window.confirm('Remove this staff member\u2019s access? This cannot be undone.')) return;
+    setStaffDeletingId(id);
+    const res = await fetch('/api/admin/staff', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setStaffDeletingId(null);
+    if (res.ok) fetchStaff();
+    else alert(body.error || 'Could not remove this staff member.');
+  }
+
 
   useEffect(() => {
     if (view !== 'all') return;
@@ -453,6 +507,7 @@ export default function AdminDashboard() {
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
           <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
+          <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>Staff</button>
         </nav>
       </header>
 
@@ -732,6 +787,50 @@ export default function AdminDashboard() {
                     );
                   })}
                 {allBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings yet.</p>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'staff' && (
+          <div className="panel">
+            <h3>Add a staff member</h3>
+            {staffError && <div className="inline-error">{staffError}</div>}
+            <form onSubmit={handleAddStaff}>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="staff-name">Name</label>
+                  <input id="staff-name" type="text" placeholder="e.g. Priya Sharma" value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, name: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="staff-email">Email</label>
+                  <input id="staff-email" type="email" placeholder="priya@ajivasan.com" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="staff-password">Password</label>
+                <input id="staff-password" type="password" placeholder="At least 8 characters" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+              </div>
+              <button className="cta" type="submit" disabled={staffSaving}>{staffSaving ? 'Adding…' : 'Add staff member'}</button>
+            </form>
+
+            <h3 style={{ marginTop: '2rem' }}>Current staff</h3>
+            {staffLoading ? (
+              <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+            ) : (
+              <div className="sched-list">
+                {staffList.map(s => (
+                  <div className="booking-row" key={s.id}>
+                    <div className="meta">
+                      <b>{s.name}</b><br />
+                      {s.email}
+                    </div>
+                    <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
+                      {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
+                {staffList.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No staff accounts yet.</p>}
               </div>
             )}
           </div>
