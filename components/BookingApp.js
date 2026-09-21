@@ -62,7 +62,26 @@ function dayLabel(d, i) {
 function timeRangeLabel(hours) {
   if (!hours || hours.length === 0) return '';
   const sorted = [...hours].sort((a, b) => a - b);
-  return `${fmtHour(sorted[0])} \u2013 ${fmtHour(sorted[sorted.length - 1] + 1)}`;
+
+  // Group consecutive hours into runs, since a selection can have gaps
+  // (e.g. 9am and 2pm, skipping hours already booked by someone else).
+  // Each run is shown as its own start–end range rather than pretending
+  // everything between the first and last hour was selected.
+  const runs = [];
+  let runStart = sorted[0];
+  let prev = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) {
+      prev = sorted[i];
+    } else {
+      runs.push([runStart, prev]);
+      runStart = sorted[i];
+      prev = sorted[i];
+    }
+  }
+  runs.push([runStart, prev]);
+
+  return runs.map(([start, end]) => `${fmtHour(start)} \u2013 ${fmtHour(end + 1)}`).join(', ');
 }
 
 const MY_BOOKINGS_KEY = 'ajivasan_my_booking_ids';
