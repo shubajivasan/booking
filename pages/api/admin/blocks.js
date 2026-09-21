@@ -1,24 +1,23 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { logActivity } from '../../../lib/activityLog';
+import { roomName, minutesToLabel, timeToMinutes } from '../../../lib/schedule';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+function timeLabel(hhmmss) {
+  return minutesToLabel(timeToMinutes(hhmmss));
+}
+
 export default async function handler(req, res) {
-  // Both the head-office dashboard and the branch staff portal manage the
-  // same recurring_blocks table through this one route.
   const user = await getAdminUser(req);
-  const isBranchStaff = isStaffAuthenticated(req); // the separate branches.* portal login
+  const isBranchStaff = isStaffAuthenticated(req);
 
   if (!user && !isBranchStaff) {
     return res.status(401).json({ error: 'Sign in to make changes.' });
   }
 
-  // Branch-portal staff (a different login system entirely) keep their
-  // existing full access to add/remove within their own portal. For the
-  // head-office dashboard, permissions depend on role:
-  //   staff  -> can add a class, but not edit or remove one
-  //   admin / super_admin -> can add, edit, and remove
   const canEditOrDelete = isBranchStaff || (user && user.role !== 'staff');
 
   if (req.method === 'GET') {
@@ -67,6 +66,14 @@ export default async function handler(req, res) {
       .select();
 
     if (error) return res.status(500).json({ error: error.message });
+
+    if (user) {
+      await logActivity({
+        user, action: 'create', entity_type: 'class',
+        summary: `Added regular class "${label}" in ${roomName(room_id)} on ${dayList.join(', ')}, ${timeLabel(start_time)}\u2013${timeLabel(end_time)}`,
+      });
+    }
+
     return res.status(200).json({ blocks: data });
   }
 
@@ -106,6 +113,14 @@ export default async function handler(req, res) {
       .select();
 
     if (error) return res.status(500).json({ error: error.message });
+
+    if (user) {
+      await logActivity({
+        user, action: 'update', entity_type: 'class',
+        summary: `Edited regular class "${label}" in ${roomName(room_id)}, now ${day_of_week} ${timeLabel(start_time)}\u2013${timeLabel(end_time)}`,
+      });
+    }
+
     return res.status(200).json({ block: data[0] });
   }
 
@@ -116,8 +131,18 @@ export default async function handler(req, res) {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required.' });
 
+    const { data: existing } = await supabaseAdmin.from('recurring_blocks').select('*').eq('id', id).maybeSingle();
+
     const { error } = await supabaseAdmin.from('recurring_blocks').delete().eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
+
+    if (user && existing) {
+      await logActivity({
+        user, action: 'delete', entity_type: 'class',
+        summary: `Removed regular class "${existing.label}" from ${roomName(existing.room_id)}, ${existing.day_of_week} ${timeLabel(existing.start_time)}\u2013${timeLabel(existing.end_time)}`,
+      });
+    }
+
     return res.status(200).json({ ok: true });
   }
 
