@@ -1,15 +1,14 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { hashPassword } from '../../../lib/passwordHash';
+import { logActivity } from '../../../lib/activityLog';
 
-const VALID_ROLES = ['admin', 'staff']; // super_admin is never assignable through this route
+const VALID_ROLES = ['admin', 'staff'];
 
 export default async function handler(req, res) {
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to manage staff.' });
 
-  // Only the super admin can view, add, or remove staff accounts at all —
-  // admin and staff roles get a 403 here, not just a hidden button.
   if (user.role !== 'super_admin') {
     return res.status(403).json({ error: 'Only the super admin can manage staff accounts.' });
   }
@@ -45,6 +44,12 @@ export default async function handler(req, res) {
       }
       return res.status(500).json({ error: error.message });
     }
+
+    await logActivity({
+      user, action: 'create', entity_type: 'staff',
+      summary: `Added staff member ${data[0].name} (${data[0].email}) with role "${finalRole}"`,
+    });
+
     return res.status(200).json({ staff: data[0] });
   }
 
@@ -56,8 +61,18 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "You can't remove your own account while logged in as it." });
     }
 
+    const { data: existing } = await supabaseAdmin.from('staff_users').select('name, email').eq('id', id).maybeSingle();
+
     const { error } = await supabaseAdmin.from('staff_users').delete().eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
+
+    if (existing) {
+      await logActivity({
+        user, action: 'delete', entity_type: 'staff',
+        summary: `Removed staff member ${existing.name} (${existing.email})`,
+      });
+    }
+
     return res.status(200).json({ ok: true });
   }
 
