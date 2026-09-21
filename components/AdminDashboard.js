@@ -30,7 +30,7 @@ export default function AdminDashboard() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [convertingBooking, setConvertingBooking] = useState(null); // the booking row being turned into a class, if any
   const [addForm, setAddForm] = useState({
-    room_id: '', days: [], start_time: '10:00', end_time: '11:00',
+    room_id: '', days: [], dayTimes: {}, // dayTimes: { Monday: { start: '10:00', end: '11:00' }, ... }
     batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
   });
   const [addError, setAddError] = useState('');
@@ -38,9 +38,27 @@ export default function AdminDashboard() {
   const [deletingId, setDeletingId] = useState(null);
 
   function toggleFormDay(day) {
+    setAddForm(f => {
+      if (f.days.includes(day)) {
+        return { ...f, days: f.days.filter(d => d !== day) };
+      }
+      // Default a newly-checked day to whatever time was last used for
+      // another day (if any), so re-checking a day after unchecking it, or
+      // adding a second day, doesn't reset to a generic default every time.
+      const lastUsed = f.days.length > 0 ? f.dayTimes[f.days[f.days.length - 1]] : null;
+      const defaultTime = lastUsed || { start: '10:00', end: '11:00' };
+      return {
+        ...f,
+        days: [...f.days, day],
+        dayTimes: { ...f.dayTimes, [day]: f.dayTimes[day] || defaultTime },
+      };
+    });
+  }
+
+  function setDayTime(day, field, value) {
     setAddForm(f => ({
       ...f,
-      days: f.days.includes(day) ? f.days.filter(d => d !== day) : [...f.days, day],
+      dayTimes: { ...f.dayTimes, [day]: { ...f.dayTimes[day], [field]: value } },
     }));
   }
 
@@ -56,11 +74,11 @@ export default function AdminDashboard() {
 
   function openConvert(bk) {
     setConvertingBooking(bk);
+    const day = dayNameFromDateKey(bk.date);
     setAddForm({
       room_id: bk.room_id,
-      days: [dayNameFromDateKey(bk.date)],
-      start_time: hourToTimeInput(bk.hour),
-      end_time: hourToTimeInput(bk.hour + 1),
+      days: [day],
+      dayTimes: { [day]: { start: hourToTimeInput(bk.hour), end: hourToTimeInput(bk.hour + 1) } },
       batch: bk.purpose || '',
       teacher: '',
       course: '',
@@ -75,7 +93,7 @@ export default function AdminDashboard() {
   function closeAddForm() {
     setShowAddForm(false);
     setConvertingBooking(null);
-    setAddForm({ room_id: '', days: [], start_time: '10:00', end_time: '11:00', batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
+    setAddForm({ room_id: '', days: [], dayTimes: {}, batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
   }
 
   function fetchBlocks() {
@@ -93,30 +111,53 @@ export default function AdminDashboard() {
     setAddError('');
     if (!addForm.room_id) { setAddError('Pick a room'); return; }
     if (addForm.days.length === 0) { setAddError('Pick at least one day of the week'); return; }
-    if (addForm.start_time >= addForm.end_time) { setAddError('End time must be after start time'); return; }
+    for (const day of addForm.days) {
+      const t = addForm.dayTimes[day];
+      if (!t || !t.start || !t.end) { setAddError(`Set a start and end time for ${day}`); return; }
+      if (t.start >= t.end) { setAddError(`${day}: end time must be after start time`); return; }
+    }
     if (!addForm.ongoing && !addForm.end_date) { setAddError('Pick an end date, or mark this as ongoing'); return; }
     if (addForm.start_date && !addForm.ongoing && addForm.end_date && addForm.start_date > addForm.end_date) {
       setAddError('End date must be after start date'); return;
     }
     setSaving(true);
-    const res = await fetch('/api/admin/blocks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: addForm.room_id,
-        days: addForm.days,
-        start_time: addForm.start_time + ':00',
-        end_time: addForm.end_time + ':00',
-        batch: addForm.batch,
-        teacher: addForm.teacher,
-        course: addForm.course,
-        start_date: addForm.start_date || null,
-        end_date: addForm.ongoing ? null : addForm.end_date,
-      }),
-    });
-    const body = await res.json();
+
+    // Days that share the exact same time go in one request; days with a
+    // different time (e.g. Monday 3–4pm but Tuesday 5–6pm) get their own.
+    const groups = {};
+    for (const day of addForm.days) {
+      const t = addForm.dayTimes[day];
+      const key = `${t.start}|${t.end}`;
+      if (!groups[key]) groups[key] = { start: t.start, end: t.end, days: [] };
+      groups[key].days.push(day);
+    }
+
+    const results = await Promise.all(
+      Object.values(groups).map(g =>
+        fetch('/api/admin/blocks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_id: addForm.room_id,
+            days: g.days,
+            start_time: g.start + ':00',
+            end_time: g.end + ':00',
+            batch: addForm.batch,
+            teacher: addForm.teacher,
+            course: addForm.course,
+            start_date: addForm.start_date || null,
+            end_date: addForm.ongoing ? null : addForm.end_date,
+          }),
+        }).then(async res => ({ ok: res.ok, days: g.days, body: await res.json().catch(() => ({})) }))
+      )
+    );
+
     setSaving(false);
-    if (!res.ok) { setAddError(body.error || 'Could not save this class.'); return; }
+    const failed = results.filter(r => !r.ok);
+    if (failed.length > 0) {
+      setAddError(failed.map(f => `${f.days.join(', ')}: ${f.body.error || 'could not save'}`).join(' \u2014 '));
+      return;
+    }
 
     if (convertingBooking) {
       // The class now covers this slot going forward — remove the original
@@ -441,14 +482,28 @@ export default function AdminDashboard() {
                 ))}
               </div>
             </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="add-start">Start time</label>
-                <input id="add-start" type="time" value={addForm.start_time} onChange={e => setAddForm({ ...addForm, start_time: e.target.value })} />
-              </div>
-              <div className="field">
-                <label htmlFor="add-end">End time</label>
-                <input id="add-end" type="time" value={addForm.end_time} onChange={e => setAddForm({ ...addForm, end_time: e.target.value })} />
+            <div className="field">
+              <label>Time for each selected day</label>
+              <div className="day-time-list">
+                {DAY_NAMES.filter(d => d !== 'Sunday').concat('Sunday').filter(d => addForm.days.includes(d)).map(day => (
+                  <div className="day-time-row" key={day}>
+                    <span className="day-time-label">{day}</span>
+                    <input
+                      type="time"
+                      value={addForm.dayTimes[day]?.start || ''}
+                      onChange={e => setDayTime(day, 'start', e.target.value)}
+                    />
+                    <span className="day-time-sep">to</span>
+                    <input
+                      type="time"
+                      value={addForm.dayTimes[day]?.end || ''}
+                      onChange={e => setDayTime(day, 'end', e.target.value)}
+                    />
+                  </div>
+                ))}
+                {addForm.days.length === 0 && (
+                  <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>Pick a day above first.</p>
+                )}
               </div>
             </div>
             <div className="field">
