@@ -1,15 +1,11 @@
 import dynamic from 'next/dynamic';
 import Head from 'next/head';
+import { isAdminAuthenticated } from '../../lib/adminAuth';
 
 const AdminDashboard = dynamic(() => import('../../components/AdminDashboard'), { ssr: false });
 
 export async function getServerSideProps({ req }) {
-  const cookieHeader = req.headers.cookie || '';
-  const match = cookieHeader.match(/admin_session=([^;]+)/);
-  const sessionValue = match ? match[1] : null;
-  const expected = process.env.ADMIN_SESSION_SECRET;
-
-  if (!expected || sessionValue !== expected) {
+  if (!isAdminAuthenticated(req)) {
     return { redirect: { destination: '/admin/login', permanent: false } };
   }
   return { props: {} };
