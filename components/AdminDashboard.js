@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
@@ -219,6 +220,18 @@ export default function AdminDashboard() {
   const [allBookingsLoading, setAllBookingsLoading] = useState(false);
   const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
   const [allBookingsSearch, setAllBookingsSearch] = useState('');
+
+  const filteredAllBookings = useMemo(() => {
+    const q = allBookingsSearch.trim().toLowerCase();
+    return allBookings
+      .filter(bk => !filterRoom || bk.room_id === filterRoom)
+      .filter(bk => {
+        if (!q) return true;
+        return (bk.student_name || '').toLowerCase().includes(q)
+          || (bk.email || '').toLowerCase().includes(q)
+          || (bk.purpose || '').toLowerCase().includes(q);
+      });
+  }, [allBookings, filterRoom, allBookingsSearch]);
 
   const [staffList, setStaffList] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -480,6 +493,52 @@ export default function AdminDashboard() {
       .sort((a, b) => a.startMinutes - b.startMinutes || a.room_id.localeCompare(b.room_id));
   }
 
+  // Turns one merged schedule entry (a class or a booking) into a flat row
+  // for Excel export, given the calendar date it falls on.
+  function entryToExportRow(dateLabel, e) {
+    const time = `${minutesToLabel(e.startMinutes)} - ${minutesToLabel(e.endMinutes)}`;
+    if (e.type === 'class') {
+      return {
+        Date: dateLabel, Time: time, Room: roomName(e.room_id), Type: 'Regular class',
+        Batch: e.batch || '', Teacher: e.teacher || '', Course: e.course || '',
+      };
+    }
+    return {
+      Date: dateLabel, Time: time, Room: roomName(e.room_id), Type: 'Booking',
+      Batch: e.studentName || '', Teacher: '', Course: e.purpose || '',
+    };
+  }
+
+  function downloadExcel(rows, filename) {
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Schedule');
+    XLSX.writeFile(workbook, filename);
+  }
+
+  function exportDay() {
+    const rows = scheduleForDate(selectedDate).map(e => entryToExportRow(toDateKey(selectedDate), e));
+    downloadExcel(rows, `schedule-${toDateKey(selectedDate)}.xlsx`);
+  }
+
+  function exportWeek() {
+    const rows = weekDays.flatMap(d => scheduleForDate(d).map(e => entryToExportRow(toDateKey(d), e)));
+    downloadExcel(rows, `schedule-week-${toDateKey(weekDays[0])}.xlsx`);
+  }
+
+  function exportAllBookings() {
+    const rows = filteredAllBookings.map(bk => ({
+      Date: bk.date,
+      Time: `${minutesToLabel(bk.hour * 60)} - ${minutesToLabel((bk.hour + 1) * 60)}`,
+      Room: roomName(bk.room_id),
+      Student: bk.student_name || '',
+      Email: bk.email || '',
+      Phone: bk.phone || '',
+      Purpose: bk.purpose || '',
+    }));
+    downloadExcel(rows, `all-bookings.xlsx`);
+  }
+
   function goToday() { setSelectedDate(new Date()); setView('today'); }
   function shiftDate(days) { setSelectedDate(d => addDays(d, days)); }
   function shiftMonth(delta) {
@@ -565,7 +624,7 @@ export default function AdminDashboard() {
           <p className="brand-eyebrow">Ajivasan Academy of Performing Arts</p>
           <h1 className="brand">Schedule dashboard</h1>
         </div>
-        <nav className="tabs">
+        <nav className="tabs no-print">
           <button className={view === 'today' ? 'active' : ''} onClick={goToday}>Today</button>
           <button className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Day</button>
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
@@ -576,7 +635,7 @@ export default function AdminDashboard() {
       </header>
 
       <main>
-        <div className="panel" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="panel no-print" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={filterRoom} onChange={e => setFilterRoom(e.target.value)}>
             <option value="">All rooms</option>
             {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -705,6 +764,10 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
               <button className="cta ghost" onClick={() => shiftDate(1)}>Next &rarr;</button>
             </div>
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
+              <button className="cta ghost" onClick={exportDay}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
+            </div>
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="sched-list">
                 {scheduleForDate(selectedDate).length === 0
@@ -723,6 +786,10 @@ export default function AdminDashboard() {
                 {shortDayLabel(weekDays[0])} – {shortDayLabel(weekDays[6])}
               </h3>
               <button className="cta ghost" onClick={() => shiftDate(7)}>Next week &rarr;</button>
+            </div>
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
+              <button className="cta ghost" onClick={exportWeek}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="week-grid">
@@ -800,6 +867,10 @@ export default function AdminDashboard() {
                 }}
               />
             </div>
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
+              <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
+              <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
+            </div>
             {allBookingsTruncated && (
               <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
                 Showing the most recent 1000 bookings. Use search or the Room filter above to narrow this down.
@@ -809,15 +880,7 @@ export default function AdminDashboard() {
               <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
             ) : (
               <div className="sched-list">
-                {allBookings
-                  .filter(bk => !filterRoom || bk.room_id === filterRoom)
-                  .filter(bk => {
-                    if (!allBookingsSearch.trim()) return true;
-                    const q = allBookingsSearch.trim().toLowerCase();
-                    return (bk.student_name || '').toLowerCase().includes(q)
-                      || (bk.email || '').toLowerCase().includes(q)
-                      || (bk.purpose || '').toLowerCase().includes(q);
-                  })
+                {filteredAllBookings
                   .map(bk => {
                     const entry = {
                       type: 'booking',
@@ -850,7 +913,7 @@ export default function AdminDashboard() {
                       </div>
                     );
                   })}
-                {allBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings yet.</p>}
+                {filteredAllBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings match.</p>}
               </div>
             )}
           </div>
