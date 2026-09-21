@@ -17,6 +17,16 @@ function shortDayLabel(d) {
 
 export default function AdminDashboard() {
   const [view, setView] = useState('today'); // today | day | week | month | all | staff
+  const [currentUser, setCurrentUser] = useState(null); // { id, name, email, role }
+
+  useEffect(() => {
+    fetch('/api/admin/me').then(r => r.json()).then(body => {
+      if (body.user) setCurrentUser(body.user);
+    });
+  }, []);
+
+  const canManage = Boolean(currentUser) && currentUser.role !== 'staff'; // admin or super_admin
+  const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
@@ -235,7 +245,7 @@ export default function AdminDashboard() {
 
   const [staffList, setStaffList] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
-  const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });
+  const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'staff' });
   const [staffError, setStaffError] = useState('');
   const [staffSaving, setStaffSaving] = useState(false);
   const [staffDeletingId, setStaffDeletingId] = useState(null);
@@ -268,7 +278,7 @@ export default function AdminDashboard() {
     const body = await res.json();
     setStaffSaving(false);
     if (!res.ok) { setStaffError(body.error || 'Could not add this staff member.'); return; }
-    setStaffForm({ name: '', email: '', password: '' });
+    setStaffForm({ name: '', email: '', password: '', role: 'staff' });
     fetchStaff();
   }
 
@@ -577,18 +587,20 @@ export default function AdminDashboard() {
             ) : null}
           </span>
           <span className="sched-tag sched-tag-class">Regular class</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="cta ghost sched-remove" onClick={() => openEditBlock(e)}>
-              Edit
-            </button>
-            <button
-              className="cta ghost sched-remove"
-              onClick={() => handleDeleteBlock(e.id)}
-              disabled={deletingId === e.id}
-            >
-              {deletingId === e.id ? 'Removing…' : 'Remove'}
-            </button>
-          </div>
+          {canManage && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="cta ghost sched-remove" onClick={() => openEditBlock(e)}>
+                Edit
+              </button>
+              <button
+                className="cta ghost sched-remove"
+                onClick={() => handleDeleteBlock(e.id)}
+                disabled={deletingId === e.id}
+              >
+                {deletingId === e.id ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          )}
         </div>
       );
     }
@@ -598,21 +610,23 @@ export default function AdminDashboard() {
         <span className="sched-room">{roomName(e.room_id)}</span>
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
-            Convert to class
-          </button>
-          <button className="cta ghost sched-remove" onClick={() => openEdit(e)}>
-            Reschedule
-          </button>
-          <button
-            className="cta ghost sched-remove"
-            onClick={() => handleDeleteBooking(e.id)}
-            disabled={deletingId === e.id}
-          >
-            {deletingId === e.id ? 'Cancelling…' : 'Remove'}
-          </button>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
+              Convert to class
+            </button>
+            <button className="cta ghost sched-remove" onClick={() => openEdit(e)}>
+              Reschedule
+            </button>
+            <button
+              className="cta ghost sched-remove"
+              onClick={() => handleDeleteBooking(e.id)}
+              disabled={deletingId === e.id}
+            >
+              {deletingId === e.id ? 'Cancelling…' : 'Remove'}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -630,7 +644,9 @@ export default function AdminDashboard() {
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
           <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
-          <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>Staff</button>
+          {canManageStaff && (
+            <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>Staff</button>
+          )}
         </nav>
       </header>
 
@@ -760,9 +776,9 @@ export default function AdminDashboard() {
         {(view === 'today' || view === 'day') && (
           <div className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={() => shiftDate(-1)}>&larr; Prev</button>
+              <button className="cta ghost no-print" onClick={() => shiftDate(-1)}>&larr; Prev</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
-              <button className="cta ghost" onClick={() => shiftDate(1)}>Next &rarr;</button>
+              <button className="cta ghost no-print" onClick={() => shiftDate(1)}>Next &rarr;</button>
             </div>
             <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
               <button className="cta ghost" onClick={exportDay}>Export to Excel</button>
@@ -781,11 +797,11 @@ export default function AdminDashboard() {
         {view === 'week' && (
           <div className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={() => shiftDate(-7)}>&larr; Prev week</button>
+              <button className="cta ghost no-print" onClick={() => shiftDate(-7)}>&larr; Prev week</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>
                 {shortDayLabel(weekDays[0])} – {shortDayLabel(weekDays[6])}
               </h3>
-              <button className="cta ghost" onClick={() => shiftDate(7)}>Next week &rarr;</button>
+              <button className="cta ghost no-print" onClick={() => shiftDate(7)}>Next week &rarr;</button>
             </div>
             <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
               <button className="cta ghost" onClick={exportWeek}>Export to Excel</button>
@@ -820,9 +836,9 @@ export default function AdminDashboard() {
         {view === 'month' && (
           <div className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <button className="cta ghost" onClick={() => shiftMonth(-1)}>&larr; Prev month</button>
+              <button className="cta ghost no-print" onClick={() => shiftMonth(-1)}>&larr; Prev month</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{monthLabel(selectedDate)}</h3>
-              <button className="cta ghost" onClick={() => shiftMonth(1)}>Next month &rarr;</button>
+              <button className="cta ghost no-print" onClick={() => shiftMonth(1)}>Next month &rarr;</button>
             </div>
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="month-grid">
@@ -899,17 +915,19 @@ export default function AdminDashboard() {
                         <span className="sched-room">{roomName(bk.room_id)}</span>
                         <span className="sched-title">{bk.student_name}{bk.purpose ? ` — ${bk.purpose}` : ''}</span>
                         <span className="sched-tag sched-tag-booking">Booking</span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="cta ghost sched-remove" onClick={() => openConvert(entry)}>Convert to class</button>
-                          <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
-                          <button
-                            className="cta ghost sched-remove"
-                            onClick={() => handleDeleteBooking(bk.id)}
-                            disabled={deletingId === bk.id}
-                          >
-                            {deletingId === bk.id ? 'Cancelling…' : 'Remove'}
-                          </button>
-                        </div>
+                        {canManage && (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="cta ghost sched-remove" onClick={() => openConvert(entry)}>Convert to class</button>
+                            <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
+                            <button
+                              className="cta ghost sched-remove"
+                              onClick={() => handleDeleteBooking(bk.id)}
+                              disabled={deletingId === bk.id}
+                            >
+                              {deletingId === bk.id ? 'Cancelling…' : 'Remove'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -934,9 +952,18 @@ export default function AdminDashboard() {
                   <input id="staff-email" type="email" placeholder="priya@ajivasan.com" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="staff-password">Password</label>
-                <input id="staff-password" type="password" placeholder="At least 8 characters" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="staff-password">Password</label>
+                  <input id="staff-password" type="password" placeholder="At least 8 characters" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="staff-role">Access level</label>
+                  <select id="staff-role" value={staffForm.role} onChange={e => setStaffForm({ ...staffForm, role: e.target.value })}>
+                    <option value="staff">Staff — can only add a regular class</option>
+                    <option value="admin">Admin — can edit/remove classes and bookings</option>
+                  </select>
+                </div>
               </div>
               <button className="cta" type="submit" disabled={staffSaving}>{staffSaving ? 'Adding…' : 'Add staff member'}</button>
             </form>
@@ -949,12 +976,18 @@ export default function AdminDashboard() {
                 {staffList.map(s => (
                   <div className="booking-row" key={s.id}>
                     <div className="meta">
-                      <b>{s.name}</b><br />
+                      <b>{s.name}</b>
+                      <span className="status-pill" style={{ marginLeft: 8 }}>
+                        {s.role === 'super_admin' ? 'Super admin' : s.role === 'admin' ? 'Admin' : 'Staff'}
+                      </span>
+                      <br />
                       {s.email}
                     </div>
-                    <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
-                      {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
-                    </button>
+                    {s.role !== 'super_admin' && (
+                      <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
+                        {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
+                      </button>
+                    )}
                   </div>
                 ))}
                 {staffList.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No staff accounts yet.</p>}
