@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { blockAppliesOnDate } from '../lib/schedule';
 
 const ROOMS = [
   { id: 'R1', name: 'Room No 1', type: 'Practice room', code: '01', capacity: 12, price: 300, desc: 'Practice room set up for individual and small-group sessions.' },
@@ -21,23 +19,6 @@ const ROOMS = [
 ];
 
 const HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-function timeToMinutes(t) {
-  // t looks like "10:30:00" from Postgres
-  const [hh, mm] = t.split(':').map(Number);
-  return hh * 60 + mm;
-}
-
-// An hour slot [h:00, h+1:00) is blocked by a recurring class if their
-// ranges overlap at all — standard interval overlap check.
-function hourOverlapsBlock(h, block) {
-  const slotStart = h * 60;
-  const slotEnd = (h + 1) * 60;
-  const blockStart = timeToMinutes(block.start_time);
-  const blockEnd = timeToMinutes(block.end_time);
-  return blockStart < slotEnd && blockEnd > slotStart;
-}
 
 function fmtHour(h) {
   const ap = h >= 12 ? 'pm' : 'am';
@@ -124,41 +105,26 @@ export default function BookingApp() {
     setLoadingSlots(true);
     const selectedDate = days[dayIndex];
     const dateKey = toDateKey(selectedDate);
-    const dayName = DAY_NAMES[selectedDate.getDay()];
 
-    Promise.all([
-      fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`)
-        .then(r => r.json())
-        .then(body => ({ data: (body.bookedHours || []).map(h => ({ hour: h })), error: body.error })),
-      supabase
-        .from('recurring_blocks')
-        .select('start_time, end_time, label, start_date, end_date')
-        .eq('room_id', roomId)
-        .eq('day_of_week', dayName),
-    ]).then(([bookingsRes, blocksRes]) => {
-      if (cancelled) return;
-      const bookingHours = bookingsRes.error ? [] : bookingsRes.data.map(r => r.hour);
-      const blocks = blocksRes.error ? [] : blocksRes.data;
-
-      const classMap = {};
-      HOURS.forEach(h => {
-        const match = blocks.find(b => hourOverlapsBlock(h, b) && blockAppliesOnDate(b, dateKey));
-        if (match) classMap[h] = match.label || 'Regular class';
+    fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`)
+      .then(r => r.json())
+      .then(body => {
+        if (cancelled) return;
+        if (body.error) {
+          setLoadingSlots(false);
+          setAvailabilityError('Could not load availability. Please refresh and try again.');
+          return;
+        }
+        setBookedHours(body.bookedHours || []);
+        setClassHours(body.classHours || {});
+        setLoadingSlots(false);
+        setAvailabilityError('');
+      }).catch(err => {
+        if (cancelled) return;
+        console.error(err);
+        setLoadingSlots(false);
+        setAvailabilityError('Could not load availability. Please refresh and try again.');
       });
-
-      if (bookingsRes.error) console.error(bookingsRes.error);
-      if (blocksRes.error) console.error(blocksRes.error);
-
-      setBookedHours(bookingHours);
-      setClassHours(classMap);
-      setLoadingSlots(false);
-      setAvailabilityError(bookingsRes.error ? 'Could not load availability. Please refresh and try again.' : '');
-    }).catch(err => {
-      if (cancelled) return;
-      console.error(err);
-      setLoadingSlots(false);
-      setAvailabilityError('Could not load availability. Please refresh and try again.');
-    });
 
     return () => { cancelled = true; };
   }, [roomId, dayIndex, days]);
