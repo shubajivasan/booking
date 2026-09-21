@@ -32,7 +32,10 @@ export default function AdminDashboard() {
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
   const [loading, setLoading] = useState(true);
 
-  const [filterRoom, setFilterRoom] = useState('');
+  const [filterRooms, setFilterRooms] = useState([]); // empty array = all rooms
+  function toggleFilterRoom(roomId) {
+    setFilterRooms(prev => prev.includes(roomId) ? prev.filter(id => id !== roomId) : [...prev, roomId]);
+  }
   const [filterTeacher, setFilterTeacher] = useState('');
   const [filterCourse, setFilterCourse] = useState('');
   const [filterType, setFilterType] = useState('all'); // all | class | booking
@@ -234,14 +237,14 @@ export default function AdminDashboard() {
   const filteredAllBookings = useMemo(() => {
     const q = allBookingsSearch.trim().toLowerCase();
     return allBookings
-      .filter(bk => !filterRoom || bk.room_id === filterRoom)
+      .filter(bk => filterRooms.length === 0 || filterRooms.includes(bk.room_id))
       .filter(bk => {
         if (!q) return true;
         return (bk.student_name || '').toLowerCase().includes(q)
           || (bk.email || '').toLowerCase().includes(q)
           || (bk.purpose || '').toLowerCase().includes(q);
       });
-  }, [allBookings, filterRoom, allBookingsSearch]);
+  }, [allBookings, filterRooms, allBookingsSearch]);
 
   const [staffList, setStaffList] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -447,7 +450,7 @@ export default function AdminDashboard() {
 
   function passesFilters(entry) {
     if (filterType !== 'all' && entry.type !== filterType) return false;
-    if (filterRoom && entry.room_id !== filterRoom) return false;
+    if (filterRooms.length > 0 && !filterRooms.includes(entry.room_id)) return false;
     if (entry.type === 'class') {
       if (filterTeacher && entry.teacher !== filterTeacher) return false;
       if (filterCourse && entry.course !== filterCourse) return false;
@@ -652,10 +655,26 @@ export default function AdminDashboard() {
 
       <main>
         <div className="panel no-print" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={filterRoom} onChange={e => setFilterRoom(e.target.value)}>
-            <option value="">All rooms</option>
-            {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          <details className="room-multiselect">
+            <summary>
+              {filterRooms.length === 0 ? 'All rooms' : `${filterRooms.length} room${filterRooms.length === 1 ? '' : 's'} selected`}
+            </summary>
+            <div className="room-multiselect-panel">
+              {filterRooms.length > 0 && (
+                <button type="button" className="cta ghost" style={{ width: '100%', marginBottom: 8 }} onClick={() => setFilterRooms([])}>
+                  Clear room selection
+                </button>
+              )}
+              <div className="day-checkboxes" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                {ROOMS.map(r => (
+                  <label key={r.id} className={`day-checkbox ${filterRooms.includes(r.id) ? 'checked' : ''}`}>
+                    <input type="checkbox" checked={filterRooms.includes(r.id)} onChange={() => toggleFilterRoom(r.id)} />
+                    {r.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
           <select value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
             <option value="">All teachers</option>
             {teacherOptions.map(t => <option key={t} value={t}>{t}</option>)}
@@ -669,8 +688,8 @@ export default function AdminDashboard() {
             <option value="class">Regular classes only</option>
             <option value="booking">Student bookings only</option>
           </select>
-          {(filterRoom || filterTeacher || filterCourse || filterType !== 'all') && (
-            <button className="cta ghost" onClick={() => { setFilterRoom(''); setFilterTeacher(''); setFilterCourse(''); setFilterType('all'); }}>
+          {(filterRooms.length > 0 || filterTeacher || filterCourse || filterType !== 'all') && (
+            <button className="cta ghost" onClick={() => { setFilterRooms([]); setFilterTeacher(''); setFilterCourse(''); setFilterType('all'); }}>
               Clear filters
             </button>
           )}
