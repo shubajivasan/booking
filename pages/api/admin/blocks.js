@@ -64,6 +64,42 @@ export default async function handler(req, res) {
     return res.status(200).json({ blocks: data });
   }
 
+  if (req.method === 'PATCH') {
+    const { id, room_id, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id is required.' });
+    if (!room_id || !day_of_week || !start_time || !end_time) {
+      return res.status(400).json({ error: 'Room, day, start time and end time are all required.' });
+    }
+    if (!VALID_DAYS.includes(day_of_week)) {
+      return res.status(400).json({ error: `"${day_of_week}" isn't a valid day of week.` });
+    }
+    if (start_time >= end_time) {
+      return res.status(400).json({ error: 'End time must be after start time.' });
+    }
+    if (start_date && end_date && start_date > end_date) {
+      return res.status(400).json({ error: 'End date must be after start date.' });
+    }
+
+    const label = [batch, teacher].filter(Boolean).join(' — ') || course || 'Class';
+
+    const { data, error } = await supabaseAdmin
+      .from('recurring_blocks')
+      .update({
+        room_id, day_of_week, start_time, end_time,
+        batch: batch || null,
+        teacher: teacher || null,
+        course: course || null,
+        start_date: start_date || null,
+        end_date: end_date || null,
+        label,
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ block: data[0] });
+  }
+
   if (req.method === 'DELETE') {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required.' });
