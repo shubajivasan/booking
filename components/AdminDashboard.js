@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
 import {
   HOURS, DAY_NAMES, ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
@@ -16,7 +15,7 @@ function shortDayLabel(d) {
 }
 
 export default function AdminDashboard() {
-  const [view, setView] = useState('today'); // today | day | week | month
+  const [view, setView] = useState('today'); // today | day | week | month | all
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
@@ -97,9 +96,9 @@ export default function AdminDashboard() {
   }
 
   function fetchBlocks() {
-    return supabase.from('recurring_blocks').select('*').then(({ data, error }) => {
-      if (!error) setAllBlocks(data || []);
-    });
+    return fetch('/api/admin/blocks')
+      .then(r => r.json())
+      .then(body => setAllBlocks(body.blocks || []));
   }
 
   // Recurring classes are few enough (a few hundred rows) to fetch once and
@@ -170,6 +169,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({ id: convertingBooking.id }),
       }).catch(() => {});
       fetchBookings();
+      refreshAllBookings();
     }
 
     closeAddForm();
@@ -211,6 +211,33 @@ export default function AdminDashboard() {
     fetchBookings();
   }, [rangeStart, rangeEnd]);
 
+  const [allBookings, setAllBookings] = useState([]);
+  const [allBookingsLoading, setAllBookingsLoading] = useState(false);
+  const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
+  const [allBookingsSearch, setAllBookingsSearch] = useState('');
+
+  useEffect(() => {
+    if (view !== 'all') return;
+    setAllBookingsLoading(true);
+    fetch('/api/admin/bookings?all=true')
+      .then(r => r.json())
+      .then(body => {
+        setAllBookings(body.bookings || []);
+        setAllBookingsTruncated(Boolean(body.truncated));
+        setAllBookingsLoading(false);
+      });
+  }, [view]);
+
+  function refreshAllBookings() {
+    if (view !== 'all') return;
+    fetch('/api/admin/bookings?all=true')
+      .then(r => r.json())
+      .then(body => {
+        setAllBookings(body.bookings || []);
+        setAllBookingsTruncated(Boolean(body.truncated));
+      });
+  }
+
   function fetchBookings() {
     setLoading(true);
     const from = toDateKey(rangeStart);
@@ -232,7 +259,7 @@ export default function AdminDashboard() {
       body: JSON.stringify({ id }),
     });
     setDeletingId(null);
-    if (res.ok) fetchBookings();
+    if (res.ok) { fetchBookings(); refreshAllBookings(); }
     else {
       const body = await res.json().catch(() => ({}));
       alert(body.error || 'Could not cancel this booking.');
@@ -269,6 +296,7 @@ export default function AdminDashboard() {
     if (!res.ok) { setEditError(body.error || 'Could not save this change.'); return; }
     setEditingBooking(null);
     fetchBookings();
+    refreshAllBookings();
   }
 
   const teacherOptions = useMemo(
@@ -420,6 +448,7 @@ export default function AdminDashboard() {
           <button className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Day</button>
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
+          <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
         </nav>
       </header>
 
@@ -627,6 +656,78 @@ export default function AdminDashboard() {
                     </button>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'all' && (
+          <div className="panel">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>All bookings</h3>
+              <input
+                type="text"
+                placeholder="Search name, email or purpose…"
+                value={allBookingsSearch}
+                onChange={e => setAllBookingsSearch(e.target.value)}
+                style={{
+                  marginLeft: 'auto', fontFamily: "'Inter',sans-serif", fontSize: 13,
+                  padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line)',
+                  background: 'var(--paper)', color: 'var(--ink)', minWidth: 220,
+                }}
+              />
+            </div>
+            {allBookingsTruncated && (
+              <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+                Showing the most recent 1000 bookings. Use search or the Room filter above to narrow this down.
+              </p>
+            )}
+            {allBookingsLoading ? (
+              <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+            ) : (
+              <div className="sched-list">
+                {allBookings
+                  .filter(bk => !filterRoom || bk.room_id === filterRoom)
+                  .filter(bk => {
+                    if (!allBookingsSearch.trim()) return true;
+                    const q = allBookingsSearch.trim().toLowerCase();
+                    return (bk.student_name || '').toLowerCase().includes(q)
+                      || (bk.email || '').toLowerCase().includes(q)
+                      || (bk.purpose || '').toLowerCase().includes(q);
+                  })
+                  .map(bk => {
+                    const entry = {
+                      type: 'booking',
+                      id: bk.id,
+                      room_id: bk.room_id,
+                      date: bk.date,
+                      hour: bk.hour,
+                      startMinutes: bk.hour * 60,
+                      endMinutes: (bk.hour + 1) * 60,
+                      studentName: bk.student_name,
+                      purpose: bk.purpose,
+                    };
+                    return (
+                      <div className="sched-row" key={bk.id}>
+                        <span className="sched-time">{`${bk.date} \u00b7 ${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)}`}</span>
+                        <span className="sched-room">{roomName(bk.room_id)}</span>
+                        <span className="sched-title">{bk.student_name}{bk.purpose ? ` — ${bk.purpose}` : ''}</span>
+                        <span className="sched-tag sched-tag-booking">Booking</span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="cta ghost sched-remove" onClick={() => openConvert(entry)}>Convert to class</button>
+                          <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
+                          <button
+                            className="cta ghost sched-remove"
+                            onClick={() => handleDeleteBooking(bk.id)}
+                            disabled={deletingId === bk.id}
+                          >
+                            {deletingId === bk.id ? 'Cancelling…' : 'Remove'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {allBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings yet.</p>}
               </div>
             )}
           </div>
