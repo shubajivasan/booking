@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 
 export default function AdminLogin() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -10,8 +11,8 @@ export default function AdminLogin() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!password) {
-      setError('Enter the admin password');
+    if (!email || !password) {
+      setError('Enter your email and password');
       return;
     }
     setLoading(true);
@@ -19,13 +20,14 @@ export default function AdminLogin() {
     const res = await fetch('/api/admin-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
+    const body = await res.json().catch(() => ({}));
     setLoading(false);
     if (res.ok) {
       router.push('/admin');
     } else {
-      setError('Wrong password. Try again.');
+      setError(body.error || 'Wrong email or password. Try again.');
     }
   }
 
@@ -39,14 +41,24 @@ export default function AdminLogin() {
         <h1 className="brand" style={{ marginBottom: '1.5rem' }}>Staff login</h1>
         <form onSubmit={handleSubmit} className="panel">
           <div className="field">
+            <label htmlFor="admin-email">Email</label>
+            <input
+              id="admin-email"
+              type="email"
+              autoFocus
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@ajivasan.com"
+            />
+          </div>
+          <div className="field">
             <label htmlFor="admin-password">Password</label>
             <input
               id="admin-password"
               type="password"
-              autoFocus
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="Enter staff password"
+              placeholder="Enter your password"
             />
             {error && <div className="error-text">{error}</div>}
           </div>
