@@ -119,6 +119,10 @@ export default function AdminDashboard() {
   }, [view, rangeStart, selectedDate]);
 
   useEffect(() => {
+    fetchBookings();
+  }, [rangeStart, rangeEnd]);
+
+  function fetchBookings() {
     setLoading(true);
     const from = toDateKey(rangeStart);
     const to = toDateKey(rangeEnd);
@@ -128,7 +132,55 @@ export default function AdminDashboard() {
         setBookings(body.bookings || []);
         setLoading(false);
       });
-  }, [rangeStart, rangeEnd]);
+  }
+
+  async function handleDeleteBooking(id) {
+    if (!window.confirm('Cancel this booking? This cannot be undone.')) return;
+    setDeletingId(id);
+    const res = await fetch('/api/admin/bookings', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setDeletingId(null);
+    if (res.ok) fetchBookings();
+    else {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'Could not cancel this booking.');
+    }
+  }
+
+  const [editingBooking, setEditingBooking] = useState(null); // the booking row being rescheduled
+  const [editForm, setEditForm] = useState({ room_id: '', date: '', hour: 9 });
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function openEdit(bk) {
+    setEditingBooking(bk);
+    setEditForm({ room_id: bk.room_id, date: bk.date, hour: bk.hour });
+    setEditError('');
+  }
+
+  async function handleSaveEdit(e) {
+    e.preventDefault();
+    setEditError('');
+    setSavingEdit(true);
+    const res = await fetch('/api/admin/bookings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: editingBooking.id,
+        room_id: editForm.room_id,
+        date: editForm.date,
+        hour: Number(editForm.hour),
+      }),
+    });
+    const body = await res.json();
+    setSavingEdit(false);
+    if (!res.ok) { setEditError(body.error || 'Could not save this change.'); return; }
+    setEditingBooking(null);
+    fetchBookings();
+  }
 
   const teacherOptions = useMemo(
     () => [...new Set(allBlocks.map(b => b.teacher).filter(Boolean))].sort(),
@@ -178,7 +230,10 @@ export default function AdminDashboard() {
       .filter(bk => bk.date === dateKey)
       .map(bk => ({
         type: 'booking',
+        id: bk.id,
         room_id: bk.room_id,
+        date: bk.date,
+        hour: bk.hour,
         startMinutes: bk.hour * 60,
         endMinutes: (bk.hour + 1) * 60,
         studentName: bk.student_name,
@@ -245,6 +300,18 @@ export default function AdminDashboard() {
         <span className="sched-room">{roomName(e.room_id)}</span>
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="cta ghost sched-remove" onClick={() => openEdit(e)}>
+            Reschedule
+          </button>
+          <button
+            className="cta ghost sched-remove"
+            onClick={() => handleDeleteBooking(e.id)}
+            disabled={deletingId === e.id}
+          >
+            {deletingId === e.id ? 'Cancelling…' : 'Remove'}
+          </button>
+        </div>
       </div>
     );
   }
@@ -451,6 +518,42 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {editingBooking && (
+        <div className="modal-backdrop" onClick={() => setEditingBooking(null)}>
+          <div className="modal-panel panel" onClick={e => e.stopPropagation()}>
+            <h3>Reschedule booking</h3>
+            <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: -8, marginBottom: '1rem' }}>
+              {editingBooking.studentName}{editingBooking.purpose ? ` — ${editingBooking.purpose}` : ''}
+            </p>
+            <form onSubmit={handleSaveEdit}>
+              {editError && <div className="inline-error">{editError}</div>}
+              <div className="field">
+                <label htmlFor="edit-room">Room</label>
+                <select id="edit-room" value={editForm.room_id} onChange={e => setEditForm({ ...editForm, room_id: e.target.value })}>
+                  {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="edit-date">Date</label>
+                  <input id="edit-date" type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-hour">Hour</label>
+                  <select id="edit-hour" value={editForm.hour} onChange={e => setEditForm({ ...editForm, hour: e.target.value })}>
+                    {HOURS.map(h => <option key={h} value={h}>{`${fmtHour(h)} \u2013 ${fmtHour(h + 1)}`}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="cta" type="submit" disabled={savingEdit}>{savingEdit ? 'Saving…' : 'Save new time'}</button>
+                <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
