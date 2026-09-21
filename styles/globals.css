@@ -520,11 +520,14 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
 }
 
 @media print {
+  @page { margin: 12mm; }
   .no-print, .sched-remove, form.panel, .modal-backdrop {
     display:none !important;
   }
   body{ background:#fff; color:#000; }
   .panel{ border:1px solid #ccc; box-shadow:none; background:#fff; break-inside:avoid; }
+  .panel > div:first-child{ justify-content:center !important; }
+  .panel > div:first-child h3{ margin:0 auto; }
   .sched-row{
     grid-template-columns:90px 130px 1fr auto;
     border-bottom:1px solid #ddd;
@@ -532,6 +535,8 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
     break-inside:avoid;
   }
   .sched-tag{ background:#eee !important; color:#333 !important; }
+  .week-grid{ break-inside:avoid; }
+  .week-day{ break-inside:avoid; }
   main{ max-width:100%; padding:0; }
 }
 
