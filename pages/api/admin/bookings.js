@@ -1,15 +1,28 @@
-import { isAdminAuthenticated } from '../../../lib/adminAuth';
+import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export default async function handler(req, res) {
-  if (!isAdminAuthenticated(req)) {
-    return res.status(401).json({ error: 'Sign in as staff to view bookings.' });
-  }
+  const user = await getAdminUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in as staff to view bookings.' });
 
   if (req.method === 'GET') {
-    const { from, to } = req.query;
+    const { from, to, all } = req.query;
+
+    if (all === 'true') {
+      const { data, error } = await supabaseAdmin
+        .from('bookings')
+        .select('*')
+        .eq('status', 'confirmed')
+        .order('date', { ascending: false })
+        .order('hour', { ascending: false })
+        .limit(1000);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ bookings: data, truncated: data.length === 1000 });
+    }
+
     if (!from || !to) {
-      return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD).' });
+      return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD), or pass all=true.' });
     }
 
     const { data, error } = await supabaseAdmin
@@ -23,6 +36,12 @@ export default async function handler(req, res) {
     return res.status(200).json({ bookings: data });
   }
 
+  // Staff can view bookings (needed just to see the schedule) but only
+  // admin/super_admin can actually change or cancel one.
+  if (user.role === 'staff') {
+    return res.status(403).json({ error: 'Only an admin can change a booking.' });
+  }
+
   if (req.method === 'DELETE') {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required' });
@@ -33,8 +52,6 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    // Reschedule an existing booking — change its room, date and/or hour.
-    // Any field left out keeps its current value.
     const { id, room_id, date, hour } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required' });
 
