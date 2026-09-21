@@ -325,6 +325,62 @@ export default function AdminDashboard() {
   }
 
   const [editingBooking, setEditingBooking] = useState(null); // the booking row being rescheduled
+  const [editingBlock, setEditingBlock] = useState(null); // the regular class being edited
+  const [blockEditForm, setBlockEditForm] = useState({
+    room_id: '', day_of_week: '', start_time: '', end_time: '',
+    batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
+  });
+  const [blockEditError, setBlockEditError] = useState('');
+  const [savingBlockEdit, setSavingBlockEdit] = useState(false);
+
+  function openEditBlock(e) {
+    setEditingBlock(e);
+    setBlockEditForm({
+      room_id: e.room_id,
+      day_of_week: e.day_of_week,
+      start_time: e.start_time.slice(0, 5),
+      end_time: e.end_time.slice(0, 5),
+      batch: e.batch || '',
+      teacher: e.teacher || '',
+      course: e.course || '',
+      start_date: e.start_date || '',
+      ongoing: !e.end_date,
+      end_date: e.end_date || '',
+    });
+    setBlockEditError('');
+  }
+
+  async function handleSaveEditBlock(ev) {
+    ev.preventDefault();
+    setBlockEditError('');
+    if (!blockEditForm.room_id) { setBlockEditError('Pick a room'); return; }
+    if (!blockEditForm.day_of_week) { setBlockEditError('Pick a day'); return; }
+    if (blockEditForm.start_time >= blockEditForm.end_time) { setBlockEditError('End time must be after start time'); return; }
+    if (!blockEditForm.ongoing && !blockEditForm.end_date) { setBlockEditError('Pick an end date, or mark this as ongoing'); return; }
+
+    setSavingBlockEdit(true);
+    const res = await fetch('/api/admin/blocks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: editingBlock.id,
+        room_id: blockEditForm.room_id,
+        day_of_week: blockEditForm.day_of_week,
+        start_time: blockEditForm.start_time + ':00',
+        end_time: blockEditForm.end_time + ':00',
+        batch: blockEditForm.batch,
+        teacher: blockEditForm.teacher,
+        course: blockEditForm.course,
+        start_date: blockEditForm.start_date || null,
+        end_date: blockEditForm.ongoing ? null : blockEditForm.end_date,
+      }),
+    });
+    const body = await res.json();
+    setSavingBlockEdit(false);
+    if (!res.ok) { setBlockEditError(body.error || 'Could not save this change.'); return; }
+    setEditingBlock(null);
+    fetchBlocks();
+  }
   const [editForm, setEditForm] = useState({ room_id: '', date: '', hour: 9 });
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -391,6 +447,9 @@ export default function AdminDashboard() {
         type: 'class',
         id: b.id,
         room_id: b.room_id,
+        day_of_week: b.day_of_week,
+        start_time: b.start_time,
+        end_time: b.end_time,
         startMinutes: timeToMinutes(b.start_time),
         endMinutes: timeToMinutes(b.end_time),
         teacher: b.teacher,
@@ -459,13 +518,18 @@ export default function AdminDashboard() {
             ) : null}
           </span>
           <span className="sched-tag sched-tag-class">Regular class</span>
-          <button
-            className="cta ghost sched-remove"
-            onClick={() => handleDeleteBlock(e.id)}
-            disabled={deletingId === e.id}
-          >
-            {deletingId === e.id ? 'Removing…' : 'Remove'}
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="cta ghost sched-remove" onClick={() => openEditBlock(e)}>
+              Edit
+            </button>
+            <button
+              className="cta ghost sched-remove"
+              onClick={() => handleDeleteBlock(e.id)}
+              disabled={deletingId === e.id}
+            >
+              {deletingId === e.id ? 'Removing…' : 'Remove'}
+            </button>
+          </div>
         </div>
       );
     }
@@ -867,6 +931,89 @@ export default function AdminDashboard() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <button className="cta" type="submit" disabled={savingEdit}>{savingEdit ? 'Saving…' : 'Save new time'}</button>
                 <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingBlock && (
+        <div className="modal-backdrop" onClick={() => setEditingBlock(null)}>
+          <div className="modal-panel panel" onClick={e => e.stopPropagation()}>
+            <h3>Edit regular class</h3>
+            <form onSubmit={handleSaveEditBlock}>
+              {blockEditError && <div className="inline-error">{blockEditError}</div>}
+              <div className="field">
+                <label htmlFor="block-edit-room">Room</label>
+                <select id="block-edit-room" value={blockEditForm.room_id} onChange={e => setBlockEditForm({ ...blockEditForm, room_id: e.target.value })}>
+                  {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="block-edit-day">Day of week</label>
+                  <select id="block-edit-day" value={blockEditForm.day_of_week} onChange={e => setBlockEditForm({ ...blockEditForm, day_of_week: e.target.value })}>
+                    {DAY_NAMES.filter(d => d !== 'Sunday').concat('Sunday').map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="block-edit-start">Start time</label>
+                  <input id="block-edit-start" type="time" value={blockEditForm.start_time} onChange={e => setBlockEditForm({ ...blockEditForm, start_time: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="block-edit-end">End time</label>
+                  <input id="block-edit-end" type="time" value={blockEditForm.end_time} onChange={e => setBlockEditForm({ ...blockEditForm, end_time: e.target.value })} />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="block-edit-batch">Batch name</label>
+                <input id="block-edit-batch" type="text" value={blockEditForm.batch} onChange={e => setBlockEditForm({ ...blockEditForm, batch: e.target.value })} />
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="block-edit-teacher">Teacher</label>
+                  <input id="block-edit-teacher" type="text" value={blockEditForm.teacher} onChange={e => setBlockEditForm({ ...blockEditForm, teacher: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="block-edit-course">Course</label>
+                  <input
+                    id="block-edit-course"
+                    type="text"
+                    list="course-suggestions"
+                    placeholder="e.g. Hindustani Classical Vocals"
+                    value={blockEditForm.course}
+                    onChange={e => setBlockEditForm({ ...blockEditForm, course: e.target.value })}
+                  />
+                  <datalist id="course-suggestions">
+                    {courseOptions.map(c => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="block-edit-startdate">Start date (optional)</label>
+                <input id="block-edit-startdate" type="date" value={blockEditForm.start_date} onChange={e => setBlockEditForm({ ...blockEditForm, start_date: e.target.value })} />
+              </div>
+              <div className="field">
+                <label className="ongoing-toggle">
+                  <input
+                    type="checkbox"
+                    checked={blockEditForm.ongoing}
+                    onChange={e => setBlockEditForm({ ...blockEditForm, ongoing: e.target.checked, end_date: e.target.checked ? '' : blockEditForm.end_date })}
+                  />
+                  Regular class — runs indefinitely until removed
+                </label>
+              </div>
+              {!blockEditForm.ongoing && (
+                <div className="field">
+                  <label htmlFor="block-edit-enddate">End date</label>
+                  <input id="block-edit-enddate" type="date" value={blockEditForm.end_date} onChange={e => setBlockEditForm({ ...blockEditForm, end_date: e.target.value })} />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="cta" type="submit" disabled={savingBlockEdit}>{savingBlockEdit ? 'Saving…' : 'Save changes'}</button>
+                <button className="cta ghost" type="button" onClick={() => setEditingBlock(null)}>Cancel</button>
               </div>
             </form>
           </div>
