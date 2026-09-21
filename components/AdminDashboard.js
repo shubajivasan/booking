@@ -247,6 +247,29 @@ export default function AdminDashboard() {
   }, [allBookings, filterRooms, allBookingsSearch]);
 
   const [staffList, setStaffList] = useState([]);
+
+  const [activityEntries, setActivityEntries] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activitySearch, setActivitySearch] = useState('');
+
+  function fetchActivity() {
+    setActivityLoading(true);
+    fetch('/api/admin/activity')
+      .then(r => r.json())
+      .then(body => { setActivityEntries(body.entries || []); setActivityLoading(false); })
+      .catch(() => setActivityLoading(false));
+  }
+
+  useEffect(() => { if (view === 'activity') fetchActivity(); }, [view]);
+
+  const filteredActivity = useMemo(() => {
+    const q = activitySearch.trim().toLowerCase();
+    if (!q) return activityEntries;
+    return activityEntries.filter(e =>
+      (e.summary || '').toLowerCase().includes(q) || (e.user_name || '').toLowerCase().includes(q)
+    );
+  }, [activityEntries, activitySearch]);
+
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'staff' });
   const [staffError, setStaffError] = useState('');
@@ -647,6 +670,9 @@ export default function AdminDashboard() {
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
           <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
+          {canManage && (
+            <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
+          )}
           {canManageStaff && (
             <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>Staff</button>
           )}
@@ -953,6 +979,51 @@ export default function AdminDashboard() {
               <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
               <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
+          </div>
+        )}
+
+        {view === 'activity' && (
+          <div className="panel">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Activity log</h3>
+              <input
+                type="text"
+                placeholder="Search by person or what changed…"
+                value={activitySearch}
+                onChange={e => setActivitySearch(e.target.value)}
+                style={{
+                  marginLeft: 'auto', fontFamily: "'Inter',sans-serif", fontSize: 13,
+                  padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line)',
+                  background: 'var(--paper)', color: 'var(--ink)', minWidth: 220,
+                }}
+              />
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+              Showing the most recent 500 changes made from this dashboard. Bookings students make themselves aren't logged here — only staff actions are: adding/editing/removing classes, rescheduling/cancelling bookings, and adding/removing staff accounts.
+            </p>
+            {activityLoading ? (
+              <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+            ) : (
+              <div className="sched-list">
+                {filteredActivity.map(e => (
+                  <div className="booking-row" key={e.id}>
+                    <div className="meta">
+                      <b>{e.user_name}</b>
+                      <span className="status-pill" style={{ marginLeft: 8 }}>
+                        {e.action === 'create' ? 'Added' : e.action === 'update' ? 'Edited' : 'Removed'}
+                      </span>
+                      <br />
+                      {e.summary}
+                      <br />
+                      <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                        {new Date(e.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {filteredActivity.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No activity recorded yet.</p>}
+              </div>
+            )}
           </div>
         )}
 
