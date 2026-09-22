@@ -881,8 +881,15 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
               <button className="cta ghost no-print" onClick={() => shiftDate(1)}>Next &rarr;</button>
             </div>
+            {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
+              <div className="sched-list">
+                {scheduleForDate(selectedDate).length === 0
+                  ? <p style={{ color: 'var(--ink-soft)' }}>Nothing scheduled.</p>
+                  : scheduleForDate(selectedDate).map(renderEntry)}
+              </div>
+            )}
             {canManage && (
-              <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap' }}>
                 <button className="cta ghost" onClick={selectAllBookingsToday}>Select all bookings shown</button>
                 {selectedBookingIds.length > 0 && (
                   <>
@@ -894,14 +901,7 @@ export default function AdminDashboard() {
                 )}
               </div>
             )}
-            {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
-              <div className="sched-list">
-                {scheduleForDate(selectedDate).length === 0
-                  ? <p style={{ color: 'var(--ink-soft)' }}>Nothing scheduled.</p>
-                  : scheduleForDate(selectedDate).map(renderEntry)}
-              </div>
-            )}
-            <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
+            <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '0.75rem' }}>
               <button className="cta ghost" onClick={exportDay}>Export to Excel</button>
               <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
