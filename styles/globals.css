@@ -229,7 +229,7 @@ main{ max-width:1080px; margin:0 auto; padding:2rem 1.5rem 4rem; }
 .slot:hover:not(.booked){ background:var(--paper-dim); }
 .slot.selected{ background:var(--brass); color:#fff; border-color:var(--brass-dark); transform:scale(1.03); }
 .slot.booked{ background:var(--booked-green-bg); color:var(--booked-green); border-color:var(--booked-green); cursor:not-allowed; text-decoration:line-through; opacity:0.75; }
-.slot.class-block{ background:var(--paper-dim); color:var(--ink-soft); border-color:var(--ink-soft); cursor:not-allowed; opacity:0.8; }
+.slot.class-block{ background:var(--booked-green-bg); color:var(--booked-green); border-color:var(--booked-green); cursor:not-allowed; opacity:0.8; }
 .slot:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
 
 .legend{ display:flex; gap:18px; margin-top:1rem; font-size:12px; color:var(--ink-soft); }
