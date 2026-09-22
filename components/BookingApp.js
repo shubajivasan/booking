@@ -369,7 +369,7 @@ export default function BookingApp() {
               <div className="legend">
                 <span><span className="dot" style={{ background: 'var(--paper)', border: '1px solid var(--line)' }} />Open</span>
                 <span><span className="dot" style={{ background: 'var(--brass)' }} />Selected</span>
-                <span><span className="dot" style={{ background: 'var(--maroon-bg)', border: '1px solid var(--maroon)' }} />Booked</span>
+                <span><span className="dot" style={{ background: 'var(--booked-green-bg)', border: '1px solid var(--booked-green)' }} />Booked</span>
                 <span><span className="dot" style={{ background: 'var(--paper-dim)', border: '1px solid var(--ink-soft)' }} />Regular class</span>
               </div>
             </div>
