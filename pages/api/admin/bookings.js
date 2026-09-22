@@ -1,7 +1,7 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, fmtHour } from '../../../lib/schedule';
+import { roomName, minutesToLabel } from '../../../lib/schedule';
 
 export default async function handler(req, res) {
   const user = await getAdminUser(req);
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
     if (existing) {
       await logActivity({
         user, action: 'delete', entity_type: 'booking',
-        summary: `Cancelled booking for ${existing.student_name} \u2014 ${roomName(existing.room_id)}, ${existing.date} ${fmtHour(existing.hour)}`,
+        summary: `Cancelled booking for ${existing.student_name} \u2014 ${roomName(existing.room_id)}, ${existing.date} ${minutesToLabel(existing.hour * 60 + (existing.minute || 0))}`,
       });
     }
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    const { id, room_id, date, hour } = req.body || {};
+    const { id, room_id, date, hour, minute } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id is required' });
 
     const { data: existing } = await supabaseAdmin.from('bookings').select('*').eq('id', id).maybeSingle();
@@ -71,9 +71,10 @@ export default async function handler(req, res) {
     if (room_id) updates.room_id = room_id;
     if (date) updates.date = date;
     if (hour !== undefined && hour !== null) updates.hour = hour;
+    if (minute !== undefined && minute !== null) updates.minute = minute;
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: 'Nothing to update — provide room_id, date and/or hour.' });
+      return res.status(400).json({ error: 'Nothing to update — provide room_id, date, hour and/or minute.' });
     }
 
     const { data, error } = await supabaseAdmin
@@ -93,7 +94,7 @@ export default async function handler(req, res) {
       const updated = data[0];
       await logActivity({
         user, action: 'update', entity_type: 'booking',
-        summary: `Rescheduled booking for ${existing.student_name} \u2014 from ${roomName(existing.room_id)}, ${existing.date} ${fmtHour(existing.hour)} to ${roomName(updated.room_id)}, ${updated.date} ${fmtHour(updated.hour)}`,
+        summary: `Rescheduled booking for ${existing.student_name} \u2014 from ${roomName(existing.room_id)}, ${existing.date} ${minutesToLabel(existing.hour * 60 + (existing.minute || 0))} to ${roomName(updated.room_id)}, ${updated.date} ${minutesToLabel(updated.hour * 60 + (updated.minute || 0))}`,
       });
     }
 
