@@ -19,12 +19,31 @@ const ROOMS = [
 ];
 
 const HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+const LAST_HOUR = Math.max(...HOURS);
+
+// Every bookable 1-hour slot's start time, in minutes-from-midnight, at
+// 30-minute resolution: 9:00, 9:30, 10:00, ... up to 8:00pm (the last
+// half-hour start, 8:30pm, is excluded since that slot would run past
+// closing time at 9pm).
+const SLOT_STARTS = HOURS.flatMap(h => (h < LAST_HOUR ? [h * 60, h * 60 + 30] : [h * 60]));
 
 function fmtHour(h) {
   const ap = h >= 12 ? 'pm' : 'am';
   let d = h % 12;
   if (d === 0) d = 12;
   return d + ap;
+}
+
+// Same idea as fmtHour but for an exact start time in minutes-from-midnight
+// (e.g. 630 -> "10:30am"), needed now that a booking can start on the
+// half-hour, not just on the hour.
+function minutesToLabel(mins) {
+  let h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const ap = h >= 12 ? 'pm' : 'am';
+  let d = h % 12;
+  if (d === 0) d = 12;
+  return m === 0 ? `${d}${ap}` : `${d}:${String(m).padStart(2, '0')}${ap}`;
 }
 
 function toDateKey(d) {
@@ -43,29 +62,30 @@ function dayLabel(d) {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-function timeRangeLabel(hours) {
-  if (!hours || hours.length === 0) return '';
-  const sorted = [...hours].sort((a, b) => a - b);
+// selectedSlots holds each 1-hour booking's START TIME as minutes-from-
+// midnight (e.g. 600 for 10:00, 630 for 10:30) rather than a plain hour
+// number, since a booking can now start on the half-hour. This groups
+// consecutive 1-hour blocks into readable runs, e.g. selecting 10:00 and
+// 11:00 together reads as "10am – 12pm" rather than two separate lines.
+function timeRangeLabel(startMinutesList) {
+  if (!startMinutesList || startMinutesList.length === 0) return '';
+  const sorted = [...startMinutesList].sort((a, b) => a - b);
 
-  // Group consecutive hours into runs, since a selection can have gaps
-  // (e.g. 9am and 2pm, skipping hours already booked by someone else).
-  // Each run is shown as its own start–end range rather than pretending
-  // everything between the first and last hour was selected.
   const runs = [];
   let runStart = sorted[0];
-  let prev = sorted[0];
+  let runEnd = sorted[0] + 60;
   for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === prev + 1) {
-      prev = sorted[i];
+    if (sorted[i] === runEnd) {
+      runEnd = sorted[i] + 60;
     } else {
-      runs.push([runStart, prev]);
+      runs.push([runStart, runEnd]);
       runStart = sorted[i];
-      prev = sorted[i];
+      runEnd = sorted[i] + 60;
     }
   }
-  runs.push([runStart, prev]);
+  runs.push([runStart, runEnd]);
 
-  return runs.map(([start, end]) => `${fmtHour(start)} \u2013 ${fmtHour(end + 1)}`).join(', ');
+  return runs.map(([start, end]) => `${minutesToLabel(start)} \u2013 ${minutesToLabel(end)}`).join(', ');
 }
 
 const MY_BOOKINGS_KEY = 'ajivasan_my_booking_ids';
@@ -84,9 +104,9 @@ export default function BookingApp() {
   const [view, setView] = useState('browse'); // 'browse' | 'room' | 'form' | 'confirm'
   const [roomId, setRoomId] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
-  const [selectedSlots, setSelectedSlots] = useState([]);
-  const [bookedHours, setBookedHours] = useState([]);
-  const [classHours, setClassHours] = useState({}); // hour -> label, for recurring classes
+  const [selectedSlots, setSelectedSlots] = useState([]); // start-minutes values
+  const [bookedSlots, setBookedSlots] = useState([]); // start-minutes values taken by other bookings
+  const [classSlots, setClassSlots] = useState({}); // start-minutes -> label, for recurring classes
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
   const [form, setForm] = useState({ name: '', email: '', phone: '', purpose: '' });
@@ -100,8 +120,9 @@ export default function BookingApp() {
   const room = ROOMS.find(r => r.id === roomId);
 
   // Load availability whenever the selected room or day changes. Two sources
-  // make an hour unavailable: a confirmed one-time booking in `bookings`,
-  // or a recurring weekly class in `recurring_blocks` that overlaps that hour.
+  // make a start time unavailable: a confirmed one-time booking in
+  // `bookings`, or a recurring weekly class in `recurring_blocks` that
+  // overlaps that 1-hour window.
   useEffect(() => {
     if (!roomId) return;
     let cancelled = false;
@@ -117,8 +138,8 @@ export default function BookingApp() {
           setAvailabilityError('Could not load availability. Please refresh and try again.');
           return;
         }
-        setBookedHours(body.bookedHours || []);
-        setClassHours(body.classHours || {});
+        setBookedSlots(body.bookedSlots || []);
+        setClassSlots(body.classSlots || {});
         setLoadingSlots(false);
         setAvailabilityError('');
       }).catch(err => {
@@ -139,10 +160,10 @@ export default function BookingApp() {
     setView('room');
   }
 
-  function toggleSlot(h) {
-    if (bookedHours.includes(h) || classHours[h]) return;
+  function toggleSlot(startMinutes) {
+    if (bookedSlots.includes(startMinutes) || classSlots[startMinutes]) return;
     setSelectedSlots(prev =>
-      prev.includes(h) ? prev.filter(x => x !== h) : [...prev, h].sort((a, b) => a - b)
+      prev.includes(startMinutes) ? prev.filter(x => x !== startMinutes) : [...prev, startMinutes].sort((a, b) => a - b)
     );
   }
 
@@ -167,7 +188,7 @@ export default function BookingApp() {
       body: JSON.stringify({
         roomId,
         date: dateKey,
-        hours: selectedSlots,
+        slots: selectedSlots,
         price: room.price,
         name: form.name.trim(),
         email: form.email.trim(),
@@ -185,11 +206,11 @@ export default function BookingApp() {
     if (!res.ok) {
       setSubmitting(false);
       if (res.status === 409) {
-        // Someone else booked one of these exact hours in the moment between
+        // Someone else booked one of these exact times in the moment between
         // this page loading and the button being clicked. Refresh availability.
-        setSubmitError(body.error || 'One or more of those hours were just booked by someone else. Please pick different slots.');
+        setSubmitError(body.error || 'One or more of those times were just booked by someone else. Please pick different slots.');
         const freshRes = await fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`).then(r => r.json());
-        setBookedHours(freshRes.bookedHours || []);
+        setBookedSlots(freshRes.bookedSlots || []);
         setSelectedSlots([]);
         setView('room');
       } else {
@@ -213,7 +234,7 @@ export default function BookingApp() {
       room: room.name,
       code: room.code,
       date: selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-      hours: selectedSlots.map(fmtHour).join(', '),
+      hours: timeRangeLabel(selectedSlots),
       total: selectedSlots.length * room.price,
       name: form.name.trim(),
     });
@@ -350,33 +371,34 @@ export default function BookingApp() {
                   />
                 </label>
               </div>
-              <h3 style={{ marginTop: '1.6rem' }}>Available hours</h3>
+              <h3 style={{ marginTop: '1.6rem' }}>Available times</h3>
               {loadingSlots ? (
                 <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Checking availability&hellip;</p>
               ) : availabilityError ? (
                 <div className="inline-error">{availabilityError}</div>
               ) : (
                 <div className="slot-board">
-                  {HOURS.map(h => {
-                    const isBooked = bookedHours.includes(h);
-                    const isClass = Boolean(classHours[h]);
+                  {SLOT_STARTS.map(start => {
+                    const isBooked = bookedSlots.includes(start);
+                    const isClass = Boolean(classSlots[start]);
                     const isBlocked = isBooked || isClass;
-                    const isSel = selectedSlots.includes(h);
+                    const isSel = selectedSlots.includes(start);
                     const label = isClass
-                      ? `${fmtHour(h)} — regular class (${classHours[h]})`
-                      : `${fmtHour(h)} ${isBooked ? 'unavailable' : isSel ? 'selected' : 'available'}`;
+                      ? `${minutesToLabel(start)} \u2014 regular class (${classSlots[start]})`
+                      : `${minutesToLabel(start)} ${isBooked ? 'unavailable' : isSel ? 'selected' : 'available'}`;
+
                     return (
                       <div
-                        key={h}
+                        key={start}
                         className={`slot ${isBooked ? 'booked' : ''} ${isClass ? 'class-block' : ''} ${isSel ? 'selected' : ''}`}
                         tabIndex={isBlocked ? -1 : 0}
                         role="button"
                         aria-label={label}
-                        title={isClass ? classHours[h] : undefined}
-                        onClick={() => toggleSlot(h)}
-                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSlot(h); } }}
+                        title={isClass ? classSlots[start] : undefined}
+                        onClick={() => toggleSlot(start)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSlot(start); } }}
                       >
-                        {fmtHour(h)}
+                        {minutesToLabel(start)}
                       </div>
                     );
                   })}
@@ -408,7 +430,7 @@ export default function BookingApp() {
             <div className="detail-head">
               <div>
                 <h2>Your details</h2>
-                <p className="room-type">{room.name} &middot; {dayLabel(selectedDate)} &middot; {selectedSlots.map(fmtHour).join(', ')}</p>
+                <p className="room-type">{room.name} &middot; {dayLabel(selectedDate)} &middot; {timeRangeLabel(selectedSlots)}</p>
               </div>
             </div>
             {submitError && <div className="inline-error">{submitError}</div>}
@@ -482,6 +504,7 @@ export default function BookingApp() {
                 <div className="intro"><p>Bookings made from this browser.</p></div>
                 {myBookings.map(b => {
                   const r = ROOMS.find(x => x.id === b.room_id);
+                  const startMinutes = b.hour * 60 + (b.minute || 0);
                   return (
                     <div className="booking-row" key={b.id}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -492,7 +515,7 @@ export default function BookingApp() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span className="meta">{fmtHour(b.hour)} \u2013 {fmtHour(b.hour + 1)}</span>
+                        <span className="meta">{minutesToLabel(startMinutes)} \u2013 {minutesToLabel(startMinutes + 60)}</span>
                         <span className="status-pill">{b.status}</span>
                       </div>
                     </div>
