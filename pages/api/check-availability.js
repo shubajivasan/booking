@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
   const classSlots = {};
   validSlotStarts(HOURS).forEach(startMinutes => {
-    const match = blocksRes.data.find(b => slotOverlapsBlock(startMinutes, 60, b) && blockAppliesOnDate(b, date));
+    const match = blocksRes.data.find(b => slotOverlapsBlock(startMinutes, 30, b) && blockAppliesOnDate(b, date));
     if (match) classSlots[startMinutes] = match.label || 'Regular class';
   });
 
