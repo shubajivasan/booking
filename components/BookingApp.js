@@ -34,10 +34,13 @@ function toDateKey(d) {
   return `${y}-${m}-${day}`;
 }
 
-function dayLabel(d, i) {
-  if (i === 0) return 'Today';
-  if (i === 1) return 'Tomorrow';
-  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+function dayLabel(d) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+  if (dd.getTime() === today.getTime()) return 'Today';
+  if (dd.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 function timeRangeLabel(hours) {
@@ -80,7 +83,7 @@ export default function BookingApp() {
   const [tab, setTab] = useState('browse'); // 'browse' | 'mybookings'
   const [view, setView] = useState('browse'); // 'browse' | 'room' | 'form' | 'confirm'
   const [roomId, setRoomId] = useState(null);
-  const [dayIndex, setDayIndex] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [bookedHours, setBookedHours] = useState([]);
   const [classHours, setClassHours] = useState({}); // hour -> label, for recurring classes
@@ -103,7 +106,6 @@ export default function BookingApp() {
     if (!roomId) return;
     let cancelled = false;
     setLoadingSlots(true);
-    const selectedDate = days[dayIndex];
     const dateKey = toDateKey(selectedDate);
 
     fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`)
@@ -127,11 +129,11 @@ export default function BookingApp() {
       });
 
     return () => { cancelled = true; };
-  }, [roomId, dayIndex, days]);
+  }, [roomId, selectedDate]);
 
   function openRoom(id) {
     setRoomId(id);
-    setDayIndex(0);
+    setSelectedDate(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
     setSelectedSlots([]);
     setSubmitError('');
     setView('room');
@@ -157,7 +159,7 @@ export default function BookingApp() {
     setSubmitting(true);
     setSubmitError('');
 
-    const dateKey = toDateKey(days[dayIndex]);
+    const dateKey = toDateKey(selectedDate);
 
     const res = await fetch('/api/create-booking', {
       method: 'POST',
@@ -210,7 +212,7 @@ export default function BookingApp() {
       id: ids[0],
       room: room.name,
       code: room.code,
-      date: days[dayIndex].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+      date: selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
       hours: selectedSlots.map(fmtHour).join(', '),
       total: selectedSlots.length * room.price,
       name: form.name.trim(),
@@ -327,12 +329,26 @@ export default function BookingApp() {
                 {days.map((d, i) => (
                   <button
                     key={i}
-                    className={`day-chip ${i === dayIndex ? 'active' : ''}`}
-                    onClick={() => { setDayIndex(i); setSelectedSlots([]); }}
+                    className={`day-chip ${toDateKey(d) === toDateKey(selectedDate) ? 'active' : ''}`}
+                    onClick={() => { setSelectedDate(d); setSelectedSlots([]); }}
                   >
-                    {dayLabel(d, i)}
+                    {dayLabel(d)}
                   </button>
                 ))}
+                <label className="day-chip date-picker-chip">
+                  Pick a date
+                  <input
+                    type="date"
+                    min={toDateKey(days[0])}
+                    value={toDateKey(selectedDate)}
+                    onChange={e => {
+                      if (!e.target.value) return;
+                      const [y, m, dNum] = e.target.value.split('-').map(Number);
+                      setSelectedDate(new Date(y, m - 1, dNum));
+                      setSelectedSlots([]);
+                    }}
+                  />
+                </label>
               </div>
               <h3 style={{ marginTop: '1.6rem' }}>Available hours</h3>
               {loadingSlots ? (
@@ -392,7 +408,7 @@ export default function BookingApp() {
             <div className="detail-head">
               <div>
                 <h2>Your details</h2>
-                <p className="room-type">{room.name} &middot; {dayLabel(days[dayIndex], dayIndex)} &middot; {selectedSlots.map(fmtHour).join(', ')}</p>
+                <p className="room-type">{room.name} &middot; {dayLabel(selectedDate)} &middot; {selectedSlots.map(fmtHour).join(', ')}</p>
               </div>
             </div>
             {submitError && <div className="inline-error">{submitError}</div>}
