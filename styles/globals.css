@@ -206,6 +206,25 @@ main{ max-width:1080px; margin:0 auto; padding:2rem 1.5rem 4rem; }
 .day-chip.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
 .day-chip:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
 
+.date-picker-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+.date-picker-chip input[type="date"]{
+  font-family:'Inter',sans-serif;
+  font-size:13px;
+  border:none;
+  background:transparent;
+  color:var(--ink-soft);
+  cursor:pointer;
+  padding:0;
+}
+.date-picker-chip input[type="date"]::-webkit-calendar-picker-indicator{
+  cursor:pointer;
+  opacity:0.7;
+}
+
 .slot-board{
   display:grid;
   grid-template-columns:repeat(auto-fill,minmax(84px,1fr));
