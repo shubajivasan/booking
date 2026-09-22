@@ -3,21 +3,21 @@ import { sendAdminNotification, sendStudentConfirmation } from '../../lib/sendAd
 import { sendWhatsAppNotification } from '../../lib/sendWhatsAppNotification';
 import { minutesToLabel, roomName } from '../../lib/schedule';
 
-// Groups a list of 1-hour slot starts (in minutes-from-midnight) into
-// contiguous runs for a readable label — e.g. [600, 660] (10am, 11am) reads
-// as "10am–12pm" instead of two separate ranges.
+// Groups a list of 30-minute slot starts (in minutes-from-midnight) into
+// contiguous runs for a readable label — e.g. [600, 630] (10:00, 10:30)
+// reads as "10am–11am" instead of two separate half-hour ranges.
 function slotsLabel(startMinutesList) {
   const sorted = [...startMinutesList].sort((a, b) => a - b);
   const runs = [];
   let runStart = sorted[0];
-  let runEnd = sorted[0] + 60;
+  let runEnd = sorted[0] + 30;
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] === runEnd) {
-      runEnd = sorted[i] + 60;
+      runEnd = sorted[i] + 30;
     } else {
       runs.push([runStart, runEnd]);
       runStart = sorted[i];
-      runEnd = sorted[i] + 60;
+      runEnd = sorted[i] + 30;
     }
   }
   runs.push([runStart, runEnd]);
@@ -40,6 +40,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing required booking details' });
   }
 
+  const pricePerSlot = Math.round(price / 2);
+
   const rows = slots.map(startMinutes => ({
     room_id: roomId,
     date,
@@ -49,7 +51,7 @@ export default async function handler(req, res) {
     email: String(email).slice(0, 200),
     phone: phone ? String(phone).slice(0, 40) : null,
     purpose: purpose ? String(purpose).slice(0, 500) : null,
-    amount: price,
+    amount: pricePerSlot,
     status: 'confirmed',
   }));
 
