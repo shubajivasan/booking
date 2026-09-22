@@ -81,17 +81,20 @@ export default function AdminDashboard() {
     const [y, m, d] = dateKey.split('-').map(Number);
     return DAY_NAMES[new Date(y, m - 1, d).getDay()];
   }
-  function hourToTimeInput(h) {
-    return `${String(h).padStart(2, '0')}:00`;
+  function minutesToTimeInput(totalMinutes) {
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   function openConvert(bk) {
     setConvertingBooking(bk);
     const day = dayNameFromDateKey(bk.date);
+    const startTotal = bk.hour * 60 + (bk.minute || 0);
     setAddForm({
       room_id: bk.room_id,
       days: [day],
-      dayTimes: { [day]: { start: hourToTimeInput(bk.hour), end: hourToTimeInput(bk.hour + 1) } },
+      dayTimes: { [day]: { start: minutesToTimeInput(startTotal), end: minutesToTimeInput(startTotal + 60) } },
       batch: bk.purpose || '',
       teacher: '',
       course: '',
@@ -430,13 +433,13 @@ export default function AdminDashboard() {
     setEditingBlock(null);
     fetchBlocks();
   }
-  const [editForm, setEditForm] = useState({ room_id: '', date: '', hour: 9 });
+  const [editForm, setEditForm] = useState({ room_id: '', date: '', hour: 9, minute: 0 });
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   function openEdit(bk) {
     setEditingBooking(bk);
-    setEditForm({ room_id: bk.room_id, date: bk.date, hour: bk.hour });
+    setEditForm({ room_id: bk.room_id, date: bk.date, hour: bk.hour, minute: bk.minute || 0 });
     setEditError('');
   }
 
@@ -452,6 +455,7 @@ export default function AdminDashboard() {
         room_id: editForm.room_id,
         date: editForm.date,
         hour: Number(editForm.hour),
+        minute: Number(editForm.minute),
       }),
     });
     const body = await res.json();
@@ -517,8 +521,9 @@ export default function AdminDashboard() {
         room_id: bk.room_id,
         date: bk.date,
         hour: bk.hour,
-        startMinutes: bk.hour * 60,
-        endMinutes: (bk.hour + 1) * 60,
+        minute: bk.minute || 0,
+        startMinutes: bk.hour * 60 + (bk.minute || 0),
+        endMinutes: bk.hour * 60 + (bk.minute || 0) + 60,
         studentName: bk.student_name,
         purpose: bk.purpose,
         amount: bk.amount,
@@ -563,15 +568,18 @@ export default function AdminDashboard() {
   }
 
   function exportAllBookings() {
-    const rows = filteredAllBookings.map(bk => ({
-      Date: bk.date,
-      Time: `${minutesToLabel(bk.hour * 60)} - ${minutesToLabel((bk.hour + 1) * 60)}`,
-      Room: roomName(bk.room_id),
-      Student: bk.student_name || '',
-      Email: bk.email || '',
-      Phone: bk.phone || '',
-      Purpose: bk.purpose || '',
-    }));
+    const rows = filteredAllBookings.map(bk => {
+      const start = bk.hour * 60 + (bk.minute || 0);
+      return {
+        Date: bk.date,
+        Time: `${minutesToLabel(start)} - ${minutesToLabel(start + 60)}`,
+        Room: roomName(bk.room_id),
+        Student: bk.student_name || '',
+        Email: bk.email || '',
+        Phone: bk.phone || '',
+        Purpose: bk.purpose || '',
+      };
+    });
     downloadExcel(rows, `all-bookings.xlsx`);
   }
 
@@ -1014,8 +1022,9 @@ export default function AdminDashboard() {
                       room_id: bk.room_id,
                       date: bk.date,
                       hour: bk.hour,
-                      startMinutes: bk.hour * 60,
-                      endMinutes: (bk.hour + 1) * 60,
+                      minute: bk.minute || 0,
+                      startMinutes: bk.hour * 60 + (bk.minute || 0),
+                      endMinutes: bk.hour * 60 + (bk.minute || 0) + 60,
                       studentName: bk.student_name,
                       purpose: bk.purpose,
                     };
@@ -1177,10 +1186,16 @@ export default function AdminDashboard() {
                   <input id="edit-date" type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label htmlFor="edit-hour">Hour</label>
-                  <select id="edit-hour" value={editForm.hour} onChange={e => setEditForm({ ...editForm, hour: e.target.value })}>
-                    {HOURS.map(h => <option key={h} value={h}>{`${fmtHour(h)} \u2013 ${fmtHour(h + 1)}`}</option>)}
-                  </select>
+                  <label htmlFor="edit-hour">Start time</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select id="edit-hour" value={editForm.hour} onChange={e => setEditForm({ ...editForm, hour: e.target.value })} style={{ flex: 1 }}>
+                      {HOURS.map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <select id="edit-minute" value={editForm.minute} onChange={e => setEditForm({ ...editForm, minute: e.target.value })} style={{ width: 80 }}>
+                      <option value={0}>:00</option>
+                      <option value={30}>:30</option>
+                    </select>
+                  </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
