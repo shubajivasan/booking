@@ -557,7 +557,7 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
     display:none !important;
   }
   body{ background:#fff; color:#000; }
-  .panel{ border:1px solid #ccc; box-shadow:none; background:#fff; break-inside:avoid; }
+  .panel{ border:1px solid #ccc; box-shadow:none; background:#fff; }
   .panel > div:first-child{ justify-content:center !important; }
   .panel > div:first-child h3{ margin:0 auto; }
   .sched-row{
