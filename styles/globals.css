@@ -245,7 +245,7 @@ main{ max-width:1080px; margin:0 auto; padding:2rem 1.5rem 4rem; }
   transition:background .12s ease, color .12s ease, transform .1s ease;
   user-select:none;
 }
-.slot:hover:not(.booked){ background:var(--paper-dim); }
+.slot:hover:not(.booked):not(.class-block){ background:var(--paper-dim); }
 .slot.selected{ background:var(--brass); color:#fff; border-color:var(--brass-dark); transform:scale(1.03); }
 .slot.booked{ background:var(--booked-green-bg); color:var(--booked-green); border-color:var(--booked-green); cursor:not-allowed; text-decoration:line-through; opacity:0.75; }
 .slot.class-block{ background:var(--booked-green-bg); color:var(--booked-green); border-color:var(--booked-green); cursor:not-allowed; text-decoration:line-through; opacity:0.8; }
