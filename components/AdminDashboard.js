@@ -94,7 +94,7 @@ export default function AdminDashboard() {
     setAddForm({
       room_id: bk.room_id,
       days: [day],
-      dayTimes: { [day]: { start: minutesToTimeInput(startTotal), end: minutesToTimeInput(startTotal + 60) } },
+      dayTimes: { [day]: { start: minutesToTimeInput(startTotal), end: minutesToTimeInput(startTotal + 30) } },
       batch: bk.purpose || '',
       teacher: '',
       course: '',
@@ -523,7 +523,7 @@ export default function AdminDashboard() {
         hour: bk.hour,
         minute: bk.minute || 0,
         startMinutes: bk.hour * 60 + (bk.minute || 0),
-        endMinutes: bk.hour * 60 + (bk.minute || 0) + 60,
+        endMinutes: bk.hour * 60 + (bk.minute || 0) + 30,
         studentName: bk.student_name,
         purpose: bk.purpose,
         amount: bk.amount,
@@ -572,7 +572,7 @@ export default function AdminDashboard() {
       const start = bk.hour * 60 + (bk.minute || 0);
       return {
         Date: bk.date,
-        Time: `${minutesToLabel(start)} - ${minutesToLabel(start + 60)}`,
+        Time: `${minutesToLabel(start)} - ${minutesToLabel(start + 30)}`,
         Room: roomName(bk.room_id),
         Student: bk.student_name || '',
         Email: bk.email || '',
@@ -1024,7 +1024,7 @@ export default function AdminDashboard() {
                       hour: bk.hour,
                       minute: bk.minute || 0,
                       startMinutes: bk.hour * 60 + (bk.minute || 0),
-                      endMinutes: bk.hour * 60 + (bk.minute || 0) + 60,
+                      endMinutes: bk.hour * 60 + (bk.minute || 0) + 30,
                       studentName: bk.student_name,
                       purpose: bk.purpose,
                     };
