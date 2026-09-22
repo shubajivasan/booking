@@ -597,6 +597,55 @@ export default function AdminDashboard() {
     return days;
   }, [rangeStart, rangeEnd]);
 
+  const [selectedBookingIds, setSelectedBookingIds] = useState([]);
+  const [bulkRescheduleOpen, setBulkRescheduleOpen] = useState(false);
+  const [bulkNewDate, setBulkNewDate] = useState('');
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+
+  function toggleSelectBooking(id) {
+    setSelectedBookingIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  function selectAllBookingsToday() {
+    const ids = scheduleForDate(selectedDate).filter(e => e.type === 'booking').map(e => e.id);
+    setSelectedBookingIds(ids);
+  }
+
+  function openBulkReschedule() {
+    // Defaults to the same weekday next week — the exact case you described.
+    setBulkNewDate(toDateKey(addDays(selectedDate, 7)));
+    setBulkError('');
+    setBulkRescheduleOpen(true);
+  }
+
+  async function handleBulkReschedule() {
+    if (!bulkNewDate) { setBulkError('Pick a date'); return; }
+    setBulkSaving(true);
+    setBulkError('');
+
+    const results = await Promise.all(
+      selectedBookingIds.map(id =>
+        fetch('/api/admin/bookings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, date: bulkNewDate }),
+        }).then(async res => ({ id, ok: res.ok, body: await res.json().catch(() => ({})) }))
+      )
+    );
+
+    setBulkSaving(false);
+    const failed = results.filter(r => !r.ok);
+    if (failed.length > 0) {
+      setBulkError(`${results.length - failed.length} of ${results.length} moved successfully. ${failed.length} failed \u2014 likely because that room already has something else at the same time on the new date: ${failed.map(f => f.body.error || 'unknown error').join('; ')}`);
+    } else {
+      setBulkRescheduleOpen(false);
+      setSelectedBookingIds([]);
+    }
+    fetchBookings();
+    refreshAllBookings();
+  }
+
   function renderEntry(e, i) {
     const time = `${minutesToLabel(e.startMinutes)}–${minutesToLabel(e.endMinutes)}`;
     if (e.type === 'class') {
@@ -637,7 +686,14 @@ export default function AdminDashboard() {
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
         {canManage && (
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={selectedBookingIds.includes(e.id)}
+              onChange={() => toggleSelectBooking(e.id)}
+              style={{ marginRight: 4, width: 16, height: 16, accentColor: 'var(--brass-dark)' }}
+              title="Select for bulk reschedule"
+            />
             <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
               Convert to class
             </button>
@@ -825,6 +881,19 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
               <button className="cta ghost no-print" onClick={() => shiftDate(1)}>Next &rarr;</button>
             </div>
+            {canManage && (
+              <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <button className="cta ghost" onClick={selectAllBookingsToday}>Select all bookings shown</button>
+                {selectedBookingIds.length > 0 && (
+                  <>
+                    <button className="cta ghost" onClick={() => setSelectedBookingIds([])}>Clear selection</button>
+                    <button className="cta" onClick={openBulkReschedule}>
+                      Reschedule {selectedBookingIds.length} selected…
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {loading ? <p style={{ color: 'var(--ink-soft)' }}>Loading…</p> : (
               <div className="sched-list">
                 {scheduleForDate(selectedDate).length === 0
@@ -1202,6 +1271,28 @@ export default function AdminDashboard() {
                 <button className="cta ghost" type="button" onClick={() => setEditingBlock(null)}>Cancel</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {bulkRescheduleOpen && (
+        <div className="modal-backdrop" onClick={() => !bulkSaving && setBulkRescheduleOpen(false)}>
+          <div className="modal-panel panel" onClick={e => e.stopPropagation()}>
+            <h3>Reschedule {selectedBookingIds.length} booking{selectedBookingIds.length === 1 ? '' : 's'}</h3>
+            <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: -8, marginBottom: '1rem' }}>
+              Each one keeps its own room and time — only the date changes, for all of them at once.
+            </p>
+            {bulkError && <div className="inline-error">{bulkError}</div>}
+            <div className="field">
+              <label htmlFor="bulk-new-date">New date</label>
+              <input id="bulk-new-date" type="date" value={bulkNewDate} onChange={e => setBulkNewDate(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="cta" onClick={handleBulkReschedule} disabled={bulkSaving}>
+                {bulkSaving ? 'Rescheduling…' : `Reschedule ${selectedBookingIds.length} booking${selectedBookingIds.length === 1 ? '' : 's'}`}
+              </button>
+              <button className="cta ghost" onClick={() => setBulkRescheduleOpen(false)} disabled={bulkSaving}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
