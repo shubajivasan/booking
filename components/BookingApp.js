@@ -19,13 +19,12 @@ const ROOMS = [
 ];
 
 const HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-const LAST_HOUR = Math.max(...HOURS);
 
-// Every bookable 1-hour slot's start time, in minutes-from-midnight, at
-// 30-minute resolution: 9:00, 9:30, 10:00, ... up to 8:00pm (the last
-// half-hour start, 8:30pm, is excluded since that slot would run past
-// closing time at 9pm).
-const SLOT_STARTS = HOURS.flatMap(h => (h < LAST_HOUR ? [h * 60, h * 60 + 30] : [h * 60]));
+// Every bookable slot's start time, in minutes-from-midnight, at 30-minute
+// resolution: 9:00, 9:30, 10:00, ... through 8:30pm (the very last
+// half-hour before closing at 9pm), since each slot is its own 30-minute
+// block rather than implicitly reserving a full hour.
+const SLOT_STARTS = HOURS.flatMap(h => [h * 60, h * 60 + 30]);
 
 function fmtHour(h) {
   const ap = h >= 12 ? 'pm' : 'am';
@@ -62,30 +61,40 @@ function dayLabel(d) {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-// selectedSlots holds each 1-hour booking's START TIME as minutes-from-
-// midnight (e.g. 600 for 10:00, 630 for 10:30) rather than a plain hour
-// number, since a booking can now start on the half-hour. This groups
-// consecutive 1-hour blocks into readable runs, e.g. selecting 10:00 and
-// 11:00 together reads as "10am – 12pm" rather than two separate lines.
+// selectedSlots holds each 30-minute block's START TIME as minutes-from-
+// midnight (e.g. 600 for 10:00, 630 for 10:30). This groups consecutive
+// blocks into readable runs, e.g. selecting 10:00 and 10:30 together reads
+// as "10am – 11am" rather than two separate half-hour lines.
 function timeRangeLabel(startMinutesList) {
   if (!startMinutesList || startMinutesList.length === 0) return '';
   const sorted = [...startMinutesList].sort((a, b) => a - b);
 
   const runs = [];
   let runStart = sorted[0];
-  let runEnd = sorted[0] + 60;
+  let runEnd = sorted[0] + 30;
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] === runEnd) {
-      runEnd = sorted[i] + 60;
+      runEnd = sorted[i] + 30;
     } else {
       runs.push([runStart, runEnd]);
       runStart = sorted[i];
-      runEnd = sorted[i] + 60;
+      runEnd = sorted[i] + 30;
     }
   }
   runs.push([runStart, runEnd]);
 
   return runs.map(([start, end]) => `${minutesToLabel(start)} \u2013 ${minutesToLabel(end)}`).join(', ');
+}
+
+// Formats a count of 30-minute slots as a readable duration — "30 min",
+// "1 hour", "1.5 hours", "2 hours", etc.
+function durationLabel(slotCount) {
+  const totalMinutes = slotCount * 30;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hours === 0) return `${mins} min`;
+  if (mins === 0) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  return `${hours}.5 hours`;
 }
 
 const MY_BOOKINGS_KEY = 'ajivasan_my_booking_ids';
@@ -235,7 +244,7 @@ export default function BookingApp() {
       code: room.code,
       date: selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
       hours: timeRangeLabel(selectedSlots),
-      total: selectedSlots.length * room.price,
+      total: selectedSlots.length * (room.price / 2),
       name: form.name.trim(),
     });
     setSubmitting(false);
@@ -414,7 +423,7 @@ export default function BookingApp() {
             <div className="summary-bar">
               <div className="total">
                 {selectedSlots.length > 0 ? timeRangeLabel(selectedSlots) : '\u2014'}
-                <span>{selectedSlots.length} hour{selectedSlots.length === 1 ? '' : 's'} selected</span>
+                <span>{durationLabel(selectedSlots.length)} selected</span>
               </div>
               <button className="cta" disabled={selectedSlots.length === 0} onClick={() => setView('form')}>
                 Continue to details
@@ -459,7 +468,7 @@ export default function BookingApp() {
             <div className="summary-bar">
               <div className="total">
                 {timeRangeLabel(selectedSlots)}
-                <span>{selectedSlots.length} hour{selectedSlots.length === 1 ? '' : 's'} &middot; {room.name}</span>
+                <span>{durationLabel(selectedSlots.length)} &middot; {room.name}</span>
               </div>
               <button className="cta" disabled={submitting} onClick={handleConfirmBooking}>
                 {submitting ? 'Confirming\u2026' : 'Confirm booking'}
@@ -515,7 +524,7 @@ export default function BookingApp() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span className="meta">{minutesToLabel(startMinutes)} \u2013 {minutesToLabel(startMinutes + 60)}</span>
+                        <span className="meta">{minutesToLabel(startMinutes)} \u2013 {minutesToLabel(startMinutes + 30)}</span>
                         <span className="status-pill">{b.status}</span>
                       </div>
                     </div>
