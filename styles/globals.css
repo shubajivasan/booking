@@ -623,3 +623,33 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   header{ padding:1.6rem 1.2rem 1.2rem; }
   main{ padding:1.6rem 1.2rem 3rem; }
 }
+
+/* ---------- booking requests (management-allocated rooms) ---------- */
+.room-tag.approval-tag{ left:auto; right:8px; background:var(--maroon); }
+.approval-note{
+  background:var(--sage-bg);
+  border:1px solid var(--brass);
+  border-radius:var(--radius);
+  padding:12px 16px;
+  font-size:14px;
+  line-height:1.6;
+  color:var(--ink);
+  margin-bottom:1.6rem;
+}
+.confirm-icon.pending{ background:var(--sage-bg); color:var(--brass-dark); }
+.status-pill.status-pending{ background:var(--paper-dim); color:var(--brass-dark); }
+.status-pill.status-rejected{ background:var(--maroon-bg); color:var(--maroon); }
+.status-pill.status-confirmed{ background:var(--booked-green-bg); color:var(--booked-green); }
+.tab-badge{
+  display:inline-block;
+  min-width:18px;
+  margin-left:6px;
+  padding:1px 6px;
+  border-radius:999px;
+  background:var(--maroon);
+  color:#fff;
+  font-size:11px;
+  line-height:16px;
+  text-align:center;
+}
+.request-actions{ display:flex; gap:8px; flex-wrap:wrap; }
