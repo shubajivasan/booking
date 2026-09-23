@@ -1,40 +1,8 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { sendAdminNotification, sendStudentConfirmation } from '../../lib/sendAdminNotification';
 import { sendWhatsAppNotification } from '../../lib/sendWhatsAppNotification';
-import { minutesToLabel, roomName } from '../../lib/schedule';
-
-// Groups a list of 30-minute slot starts (in minutes-from-midnight) into
-// contiguous runs for a readable label — e.g. [600, 630] (10:00, 10:30)
-// reads as "10am–11am" instead of two separate half-hour ranges.
-function slotsLabel(startMinutesList) {
-  const sorted = [...startMinutesList].sort((a, b) => a - b);
-  const runs = [];
-  let runStart = sorted[0];
-  let runEnd = sorted[0] + 30;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === runEnd) {
-      runEnd = sorted[i] + 30;
-    } else {
-      runs.push([runStart, runEnd]);
-      runStart = sorted[i];
-      runEnd = sorted[i] + 30;
-    }
-  }
-  runs.push([runStart, runEnd]);
-  return runs.map(([s, e]) => `${minutesToLabel(s)}\u2013${minutesToLabel(e)}`).join(', ');
-}
-
-// Escapes user-typed text before it goes into email HTML, so a name or
-// purpose containing <a>, <img> etc. shows up as plain text rather than
-// becoming real links/images in an email sent from the academy's address.
-function esc(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { roomName, requiresApproval } from '../../lib/schedule';
+import { slotsLabel, adminEmail, studentConfirmedEmail, studentRequestReceivedEmail } from '../../lib/bookingEmails';
 
 // Resolves after `ms` milliseconds — used to cap how long the booking
 // response waits on notifications.
@@ -47,8 +15,12 @@ function timeout(ms) {
 // browser-exposed key, performs the insert, and the response only ever
 // contains the ids of the rows THIS request just created, never anyone
 // else's data. Double-booking protection is unaffected: it comes from the
-// unique(room_id, date, hour, minute) constraint in the database itself,
-// which applies no matter who or what performs the insert.
+// unique index on (room_id, date, hour, minute) for active bookings in the
+// database itself, which applies no matter who or what performs the insert.
+//
+// Rooms in APPROVAL_ROOMS (lib/schedule.js) are saved as 'pending' instead
+// of 'confirmed'. A pending request still holds the slot, so nobody else
+// can request the same time while an admin decides.
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -58,6 +30,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing required booking details' });
   }
 
+  const needsApproval = requiresApproval(roomId);
+  const status = needsApproval ? 'pending' : 'confirmed';
   const pricePerSlot = Math.round(price / 2);
 
   const rows = slots.map(startMinutes => ({
@@ -70,7 +44,7 @@ export default async function handler(req, res) {
     phone: phone ? String(phone).slice(0, 40) : null,
     purpose: purpose ? String(purpose).slice(0, 500) : null,
     amount: pricePerSlot,
-    status: 'confirmed',
+    status,
   }));
 
   const { data, error } = await supabaseAdmin.from('bookings').insert(rows).select('id');
@@ -81,15 +55,13 @@ export default async function handler(req, res) {
         error: 'One or more of those times were just booked by someone else. Please pick different slots.',
       });
     }
+    console.error('Booking insert failed:', error);
     return res.status(500).json({ error: 'Something went wrong saving your booking. Please try again.' });
   }
 
   const hoursLabel = slotsLabel(slots);
-
-  const safeName = esc(name);
-  const safeEmail = esc(email);
-  const safePhone = phone ? esc(phone) : '\u2014';
-  const safePurpose = purpose ? esc(purpose) : '';
+  const details = { roomId, date, hoursLabel, name, email, phone, purpose };
+  const adminUrl = `https://${req.headers.host}/admin`;
 
   // Notifications are awaited before responding. On Vercel, work that's
   // still running after the response is sent can be cut off, so
@@ -98,57 +70,26 @@ export default async function handler(req, res) {
   // the booking — and the 8-second cap means a slow mail server can't
   // leave the student stuck on "Confirming…".
   const notifications = Promise.allSettled([
-    sendAdminNotification({
-      subject: `New booking: ${roomName(roomId)} on ${date}`,
-      html: `
-        <h2>New booking</h2>
-        <p><b>Space:</b> ${roomName(roomId)}</p>
-        <p><b>Date:</b> ${date}</p>
-        <p><b>Hours:</b> ${hoursLabel}</p>
-        <p><b>Name:</b> ${safeName}</p>
-        <p><b>Email:</b> ${safeEmail}</p>
-        <p><b>Phone:</b> ${safePhone}</p>
-        <p><b>Purpose:</b> ${safePurpose || '\u2014'}</p>
-      `,
-    }),
-
+    sendAdminNotification(adminEmail({ ...details, needsApproval, adminUrl })),
     sendStudentConfirmation({
       to: email,
-      subject: `Your booking is confirmed \u2014 ${roomName(roomId)}, ${date}`,
-      html: `
-        <div style="font-family: Georgia, serif; color: #2b2116; max-width: 480px;">
-          <p style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a6d3b; margin-bottom: 4px;">
-            Ajivasan Academy of Performing Arts
-          </p>
-          <h2 style="margin-top: 0;">Booking confirmed</h2>
-          <p>Hi ${safeName},</p>
-          <p>Your booking is confirmed. Here are the details:</p>
-          <table style="border-collapse: collapse; margin: 16px 0;">
-            <tr><td style="padding: 4px 12px 4px 0; color: #6b5c47;">Space</td><td><b>${roomName(roomId)}</b></td></tr>
-            <tr><td style="padding: 4px 12px 4px 0; color: #6b5c47;">Date</td><td><b>${date}</b></td></tr>
-            <tr><td style="padding: 4px 12px 4px 0; color: #6b5c47;">Time</td><td><b>${hoursLabel}</b></td></tr>
-            ${safePurpose ? `<tr><td style="padding: 4px 12px 4px 0; color: #6b5c47;">Purpose</td><td>${safePurpose}</td></tr>` : ''}
-          </table>
-          <p style="font-size: 13px; color: #6b5c47;">
-            If anything about this booking needs to change, please get in touch with the academy directly.
-          </p>
-        </div>
-      `,
+      ...(needsApproval ? studentRequestReceivedEmail(details) : studentConfirmedEmail(details)),
     }),
-
     sendWhatsAppNotification({
       roomLabel: roomName(roomId),
       date,
       timeLabel: hoursLabel,
       studentName: name,
-      purpose,
+      // The approved WhatsApp template's wording is fixed, so a request is
+      // flagged through the purpose field rather than a new template.
+      purpose: needsApproval ? `APPROVAL NEEDED \u2014 ${purpose || 'no purpose given'}` : purpose,
     }),
   ]);
 
   const outcome = await Promise.race([notifications, timeout(8000)]);
   if (outcome === 'timeout') {
-    console.warn('Notifications still sending after 8s — responding to student anyway.');
+    console.warn('Notifications still sending after 8s \u2014 responding to student anyway.');
   }
 
-  res.status(200).json({ ids: data.map(r => r.id) });
+  res.status(200).json({ ids: data.map(r => r.id), status });
 }
