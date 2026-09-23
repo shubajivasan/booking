@@ -251,6 +251,67 @@ export default function AdminDashboard() {
 
   const [staffList, setStaffList] = useState([]);
 
+  // ---- Booking requests (Room 9, Room 10, Basement Hall — see APPROVAL_ROOMS) ----
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestActionKey, setRequestActionKey] = useState(null); // ids.join of the request being approved/rejected
+
+  function fetchRequests() {
+    setRequestsLoading(true);
+    return fetch('/api/admin/booking-requests')
+      .then(r => r.json())
+      .then(body => { setRequests(body.requests || []); setRequestsLoading(false); })
+      .catch(() => setRequestsLoading(false));
+  }
+
+  // Load once as soon as we know the user can review requests (for the tab
+  // badge), again whenever the tab is opened, and every 2 minutes so a new
+  // request shows up without a page refresh.
+  useEffect(() => {
+    if (!canManage) return;
+    fetchRequests();
+    const timer = setInterval(fetchRequests, 120000);
+    return () => clearInterval(timer);
+  }, [canManage]);
+  useEffect(() => { if (view === 'requests' && canManage) fetchRequests(); }, [view]);
+
+  async function handleRequestAction(request, action) {
+    let reason = '';
+    if (action === 'reject') {
+      const input = window.prompt(
+        `Reject ${request.student_name}'s request for ${roomName(request.room_id)} on ${request.date}?\n\nOptional: add a reason (it will be included in the email to the student). Leave blank for no reason.`
+      );
+      if (input === null) return; // pressed Cancel
+      reason = input.trim();
+    } else if (!window.confirm(`Approve ${request.student_name}'s request for ${roomName(request.room_id)} on ${request.date}? They'll get a confirmation email.`)) {
+      return;
+    }
+
+    setRequestActionKey(request.ids.join());
+    const res = await fetch('/api/admin/booking-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: request.ids, action, reason }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setRequestActionKey(null);
+    if (!res.ok) alert(body.error || 'Could not update this request.');
+    await fetchRequests();
+    if (action === 'approve') { fetchBookings(); refreshAllBookings(); }
+  }
+
+  function requestTimeLabel(slots) {
+    const runs = [];
+    let start = slots[0];
+    let end = slots[0] + 30;
+    for (let i = 1; i < slots.length; i++) {
+      if (slots[i] === end) end = slots[i] + 30;
+      else { runs.push([start, end]); start = slots[i]; end = slots[i] + 30; }
+    }
+    runs.push([start, end]);
+    return runs.map(([a, b]) => `${minutesToLabel(a)} \u2013 ${minutesToLabel(b)}`).join(', ');
+  }
+
   const [activityEntries, setActivityEntries] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activitySearch, setActivitySearch] = useState('');
@@ -735,6 +796,11 @@ export default function AdminDashboard() {
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
           <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
           {canManage && (
+            <button className={view === 'requests' ? 'active' : ''} onClick={() => setView('requests')}>
+              Requests{requests.length > 0 && <span className="tab-badge">{requests.length}</span>}
+            </button>
+          )}
+          {canManage && (
             <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
           )}
           {canManageStaff && (
@@ -1057,6 +1123,57 @@ export default function AdminDashboard() {
               <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
               <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
+          </div>
+        )}
+
+        {view === 'requests' && canManage && (
+          <div className="panel">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Booking requests</h3>
+              <button className="cta ghost" style={{ marginLeft: 'auto' }} onClick={fetchRequests} disabled={requestsLoading}>
+                {requestsLoading ? 'Refreshing\u2026' : 'Refresh'}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+              Requests for Room No 9, Room No 10 and Basement Hall wait here until approved. A pending request holds its slot so nobody else can request the same time, but it doesn&rsquo;t appear on the schedule views until it&rsquo;s approved. Rejecting frees the slot again. The student is emailed either way.
+            </p>
+            {requestsLoading && requests.length === 0 ? (
+              <p style={{ color: 'var(--ink-soft)' }}>Loading&hellip;</p>
+            ) : requests.length === 0 ? (
+              <p style={{ color: 'var(--ink-soft)' }}>No pending requests.</p>
+            ) : (
+              <div className="sched-list">
+                {requests.map(r => {
+                  const key = r.ids.join();
+                  const busy = requestActionKey === key;
+                  return (
+                    <div className="booking-row" key={key}>
+                      <div className="meta">
+                        <b>{r.student_name}</b>
+                        <span className="status-pill status-pending" style={{ marginLeft: 8 }}>Awaiting approval</span>
+                        <br />
+                        <b>{roomName(r.room_id)}</b> &middot; {r.date} &middot; {requestTimeLabel(r.slots)}
+                        <br />
+                        {r.email}{r.phone ? ` \u00b7 ${r.phone}` : ''}
+                        {r.purpose && (<><br />Purpose: {r.purpose}</>)}
+                        <br />
+                        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                          Requested {new Date(r.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="request-actions">
+                        <button className="cta" disabled={busy} onClick={() => handleRequestAction(r, 'approve')}>
+                          {busy ? 'Saving\u2026' : 'Approve'}
+                        </button>
+                        <button className="cta ghost" disabled={busy} onClick={() => handleRequestAction(r, 'reject')}>
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
