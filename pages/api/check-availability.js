@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   const dayName = DAY_NAMES[new Date(y, m - 1, d).getDay()];
 
   const [bookingsRes, blocksRes] = await Promise.all([
-    supabaseAdmin.from('bookings').select('hour, minute').eq('room_id', roomId).eq('date', date).eq('status', 'confirmed'),
+    supabaseAdmin.from('bookings').select('hour, minute').eq('room_id', roomId).eq('date', date).in('status', ['pending', 'confirmed']),
     supabaseAdmin.from('recurring_blocks').select('start_time, end_time, label, start_date, end_date').eq('room_id', roomId).eq('day_of_week', dayName),
   ]);
 
