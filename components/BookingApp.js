@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { requiresApproval } from '../lib/schedule';
 
 const ROOMS = [
   { id: 'R1', name: 'Room No 1', type: 'Practice room', code: '01', capacity: 12, price: 300, desc: 'Practice room set up for individual and small-group sessions.' },
@@ -246,6 +247,8 @@ export default function BookingApp() {
       hours: timeRangeLabel(selectedSlots),
       total: selectedSlots.length * (room.price / 2),
       name: form.name.trim(),
+      email: form.email.trim(),
+      pending: body.status === 'pending',
     });
     setSubmitting(false);
     setView('confirm');
@@ -324,6 +327,7 @@ export default function BookingApp() {
                 >
                   <div className="room-visual">
                     <span className="room-tag">{r.capacity} cap</span>
+                    {requiresApproval(r.id) && <span className="room-tag approval-tag">On request</span>}
                     <span className="room-code">{r.code}</span>
                   </div>
                   <div className="room-body">
@@ -353,6 +357,11 @@ export default function BookingApp() {
             <div className="panel" style={{ marginBottom: '1.6rem' }}>
               <p style={{ margin: 0, fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1.6 }}>{room.desc}</p>
             </div>
+            {requiresApproval(room.id) && (
+              <div className="approval-note">
+                <b>Booked on request.</b> This space is allocated by the academy&rsquo;s management. You can pick your times and send a request &mdash; it will be confirmed once an admin approves it, and you&rsquo;ll get an email either way.
+              </div>
+            )}
             <div className="panel">
               <h3>Choose a day</h3>
               <div className="day-strip">
@@ -471,7 +480,9 @@ export default function BookingApp() {
                 <span>{durationLabel(selectedSlots.length)} &middot; {room.name}</span>
               </div>
               <button className="cta" disabled={submitting} onClick={handleConfirmBooking}>
-                {submitting ? 'Confirming\u2026' : 'Confirm booking'}
+                {requiresApproval(room.id)
+                  ? (submitting ? 'Sending request\u2026' : 'Submit booking request')
+                  : (submitting ? 'Confirming\u2026' : 'Confirm booking')}
               </button>
             </div>
           </>
@@ -480,14 +491,21 @@ export default function BookingApp() {
         {tab === 'browse' && view === 'confirm' && confirmation && (
           <div className="panel confirm-box">
             {stepProgress(2)}
-            <div className="confirm-icon">&#10003;</div>
-            <h2 style={{ fontFamily: "'Playfair Display',serif", fontWeight: 600, margin: 0 }}>Booking confirmed</h2>
+            <div className={`confirm-icon ${confirmation.pending ? 'pending' : ''}`}>{confirmation.pending ? '\u231B' : '\u2713'}</div>
+            <h2 style={{ fontFamily: "'Playfair Display',serif", fontWeight: 600, margin: 0 }}>
+              {confirmation.pending ? 'Booking request submitted' : 'Booking confirmed'}
+            </h2>
+            {confirmation.pending && (
+              <p style={{ fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 420, margin: '10px auto 0' }}>
+                Your booking will be confirmed once an admin approves it. We&rsquo;ll email you at <b>{confirmation.email}</b> as soon as it&rsquo;s reviewed. The slot is held for you until then.
+              </p>
+            )}
             <div className="confirm-code">{confirmation.id.slice(0, 8).toUpperCase()}</div>
             <div className="confirm-details">
               <div><span>Space</span><b>{confirmation.room} ({confirmation.code})</b></div>
               <div><span>Date</span><b>{confirmation.date}</b></div>
               <div><span>Hours</span><b>{confirmation.hours}</b></div>
-              <div><span>Booked by</span><b>{confirmation.name}</b></div>
+              <div><span>{confirmation.pending ? 'Requested by' : 'Booked by'}</span><b>{confirmation.name}</b></div>
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button className="cta ghost" onClick={() => { setView('browse'); setRoomId(null); setSelectedSlots([]); setForm({ name: '', email: '', phone: '', purpose: '' }); }}>
@@ -524,8 +542,10 @@ export default function BookingApp() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span className="meta">{minutesToLabel(startMinutes)} \u2013 {minutesToLabel(startMinutes + 30)}</span>
-                        <span className="status-pill">{b.status}</span>
+                        <span className="meta">{minutesToLabel(startMinutes)} &ndash; {minutesToLabel(startMinutes + 30)}</span>
+                        <span className={`status-pill status-${b.status}`}>
+                          {b.status === 'pending' ? 'Awaiting approval' : b.status === 'rejected' ? 'Not approved' : b.status}
+                        </span>
                       </div>
                     </div>
                   );
