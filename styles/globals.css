@@ -653,3 +653,20 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   text-align:center;
 }
 .request-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+.request-edit{
+  flex-basis:100%;
+  border-top:1px solid var(--line);
+  padding-top:12px;
+  margin-top:4px;
+}
+.request-edit-fields{ display:flex; gap:12px; flex-wrap:wrap; }
+.request-edit-fields label{
+  display:flex; flex-direction:column; gap:4px;
+  font-size:12px; color:var(--ink-soft);
+}
+.request-edit-fields select,
+.request-edit-fields input{
+  font-family:'Inter',sans-serif; font-size:13px;
+  padding:7px 10px; border-radius:7px;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+}
