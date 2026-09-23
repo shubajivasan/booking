@@ -275,6 +275,52 @@ export default function AdminDashboard() {
   }, [canManage]);
   useEffect(() => { if (view === 'requests' && canManage) fetchRequests(); }, [view]);
 
+  // Inline "Edit timing" form for one request at a time.
+  const [editingRequestKey, setEditingRequestKey] = useState(null);
+  const [requestEdit, setRequestEdit] = useState({ room_id: '', date: '', start: 0, end: 0 });
+  // Admins may set times outside public opening hours (e.g. a rehearsal
+  // running to 10:30pm): 7am to 11pm, in 30-minute steps.
+  const REQUEST_TIME_OPTIONS = [];
+  for (let m = 7 * 60; m <= 23 * 60; m += 30) REQUEST_TIME_OPTIONS.push(m);
+
+  function openRequestEdit(request) {
+    setEditingRequestKey(request.ids.join());
+    setRequestEdit({
+      room_id: request.room_id,
+      date: request.date,
+      start: request.slots[0],
+      end: request.slots[request.slots.length - 1] + 30,
+    });
+  }
+
+  async function handleApproveWithChanges(request, force = false) {
+    const { room_id, date, start, end } = requestEdit;
+    if (!date || end <= start) { alert('The end time must be after the start time.'); return; }
+    const newLabel = `${roomName(room_id)} on ${date}, ${minutesToLabel(start)} \u2013 ${minutesToLabel(end)}`;
+    if (!force && !window.confirm(`Approve ${request.student_name}'s request as:\n\n${newLabel}\n\nThey'll get a confirmation email with the updated details.`)) return;
+
+    const key = request.ids.join();
+    setRequestActionKey(key);
+    const res = await fetch('/api/admin/booking-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: request.ids, action: 'approve', changes: { room_id, date, start, end }, force }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setRequestActionKey(null);
+
+    if (res.status === 409 && body.code === 'class_conflict') {
+      if (window.confirm(`${body.error}\n\nApprove anyway?`)) return handleApproveWithChanges(request, true);
+      return;
+    }
+    if (!res.ok) { alert(body.error || 'Could not approve this request.'); return; }
+
+    setEditingRequestKey(null);
+    await fetchRequests();
+    fetchBookings();
+    refreshAllBookings();
+  }
+
   async function handleRequestAction(request, action) {
     let reason = '';
     if (action === 'reject') {
@@ -1162,13 +1208,56 @@ export default function AdminDashboard() {
                         </span>
                       </div>
                       <div className="request-actions">
-                        <button className="cta" disabled={busy} onClick={() => handleRequestAction(r, 'approve')}>
-                          {busy ? 'Saving\u2026' : 'Approve'}
+                        <button className="cta" disabled={busy || editingRequestKey === key} onClick={() => handleRequestAction(r, 'approve')}>
+                          {busy && editingRequestKey !== key ? 'Saving\u2026' : 'Approve'}
+                        </button>
+                        <button className="cta ghost" disabled={busy} onClick={() => (editingRequestKey === key ? setEditingRequestKey(null) : openRequestEdit(r))}>
+                          {editingRequestKey === key ? 'Close edit' : 'Edit timing'}
                         </button>
                         <button className="cta ghost" disabled={busy} onClick={() => handleRequestAction(r, 'reject')}>
                           Reject
                         </button>
                       </div>
+                      {editingRequestKey === key && (
+                        <div className="request-edit">
+                          <div className="request-edit-fields">
+                            <label>
+                              Room
+                              <select value={requestEdit.room_id} onChange={e => setRequestEdit({ ...requestEdit, room_id: e.target.value })}>
+                                {ROOMS.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
+                              </select>
+                            </label>
+                            <label>
+                              Date
+                              <input type="date" value={requestEdit.date} onChange={e => setRequestEdit({ ...requestEdit, date: e.target.value })} />
+                            </label>
+                            <label>
+                              From
+                              <select
+                                value={requestEdit.start}
+                                onChange={e => {
+                                  const start = Number(e.target.value);
+                                  setRequestEdit({ ...requestEdit, start, end: Math.max(requestEdit.end, start + 30) });
+                                }}
+                              >
+                                {REQUEST_TIME_OPTIONS.slice(0, -1).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                              </select>
+                            </label>
+                            <label>
+                              To
+                              <select value={requestEdit.end} onChange={e => setRequestEdit({ ...requestEdit, end: Number(e.target.value) })}>
+                                {REQUEST_TIME_OPTIONS.filter(m => m > requestEdit.start).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                              </select>
+                            </label>
+                          </div>
+                          <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '8px 0' }}>
+                            Was: {roomName(r.room_id)} &middot; {r.date} &middot; {requestTimeLabel(r.slots)}. You can set times outside public hours (7am&ndash;11pm).
+                          </p>
+                          <button className="cta" disabled={busy} onClick={() => handleApproveWithChanges(r)}>
+                            {busy ? 'Saving\u2026' : 'Approve with changes'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
