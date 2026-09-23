@@ -292,6 +292,7 @@ export default function AdminDashboard() {
   const [allBookingsLoading, setAllBookingsLoading] = useState(false);
   const [allBookingsTruncated, setAllBookingsTruncated] = useState(false);
   const [allBookingsSearch, setAllBookingsSearch] = useState('');
+  const [allBookingsWhen, setAllBookingsWhen] = useState('upcoming'); // upcoming | past | all
 
   const filteredAllBookings = useMemo(() => {
     const q = allBookingsSearch.trim().toLowerCase();
@@ -307,10 +308,18 @@ export default function AdminDashboard() {
 
   // Newest date first, then by time within a day — same order as before,
   // but with back-to-back slots merged into single entries.
-  const mergedAllBookings = useMemo(() =>
-    mergeBookingRows(filteredAllBookings).sort((a, b) =>
-      b.date.localeCompare(a.date) || b.startMinutes - a.startMinutes || a.room_id.localeCompare(b.room_id)
-    ), [filteredAllBookings]);
+  // Upcoming = today onwards, soonest first. Past / All = newest first.
+  const mergedAllBookings = useMemo(() => {
+    const todayKey = toDateKey(new Date());
+    const entries = mergeBookingRows(filteredAllBookings).filter(e =>
+      allBookingsWhen === 'upcoming' ? e.date >= todayKey
+        : allBookingsWhen === 'past' ? e.date < todayKey
+          : true
+    );
+    return allBookingsWhen === 'upcoming'
+      ? entries.sort((a, b) => a.date.localeCompare(b.date) || a.startMinutes - b.startMinutes || a.room_id.localeCompare(b.room_id))
+      : entries.sort((a, b) => b.date.localeCompare(a.date) || b.startMinutes - a.startMinutes || a.room_id.localeCompare(b.room_id));
+  }, [filteredAllBookings, allBookingsWhen]);
 
   const [staffList, setStaffList] = useState([]);
 
@@ -729,7 +738,7 @@ export default function AdminDashboard() {
       Phone: e.phone || '',
       Purpose: e.purpose || '',
     }));
-    downloadExcel(rows, `all-bookings.xlsx`);
+    downloadExcel(rows, `${allBookingsWhen === 'upcoming' ? 'upcoming' : allBookingsWhen === 'past' ? 'past' : 'all'}-bookings.xlsx`);
   }
 
   function goToday() { setSelectedDate(new Date()); setView('today'); }
@@ -1156,6 +1165,23 @@ export default function AdminDashboard() {
           <div className="panel">
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>All bookings</h3>
+              <select
+                value={allBookingsWhen}
+                onChange={e => setAllBookingsWhen(e.target.value)}
+                aria-label="Which bookings to show"
+                className="no-print"
+                style={{
+                  fontFamily: "'Inter',sans-serif", fontSize: 13, padding: '8px 12px', borderRadius: 7,
+                  border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--ink)',
+                }}
+              >
+                <option value="upcoming">Upcoming bookings</option>
+                <option value="past">Past bookings</option>
+                <option value="all">All bookings (incl. past)</option>
+              </select>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                {mergedAllBookings.length} {mergedAllBookings.length === 1 ? 'entry' : 'entries'}
+              </span>
               <input
                 type="text"
                 placeholder="Search name, email or purpose…"
@@ -1198,7 +1224,11 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 ))}
-                {mergedAllBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings match.</p>}
+                {mergedAllBookings.length === 0 && (
+                  <p style={{ color: 'var(--ink-soft)' }}>
+                    {allBookingsWhen === 'upcoming' ? 'No upcoming bookings match.' : allBookingsWhen === 'past' ? 'No past bookings match.' : 'No bookings match.'}
+                  </p>
+                )}
               </div>
             )}
             <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
