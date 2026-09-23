@@ -5,6 +5,63 @@ import {
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
 } from '../lib/schedule';
 
+// Each 30-minute slot is stored as its own row. For display, back-to-back
+// slots of the same booking (same room, date, student, email and purpose)
+// are merged into one entry — e.g. 8:30pm–10:30pm instead of four rows. A
+// gap splits them: 8:30–9:30pm and 10–10:30pm show as two entries. Every
+// merged entry carries all of its row ids so actions apply to the whole
+// thing.
+function mergeBookingRows(rows) {
+  const sorted = [...rows].sort((a, b) =>
+    a.room_id.localeCompare(b.room_id)
+    || a.date.localeCompare(b.date)
+    || (a.email || '').localeCompare(b.email || '')
+    || (a.student_name || '').localeCompare(b.student_name || '')
+    || (a.purpose || '').localeCompare(b.purpose || '')
+    || (a.hour * 60 + (a.minute || 0)) - (b.hour * 60 + (b.minute || 0))
+  );
+  const entries = [];
+  sorted.forEach(bk => {
+    const start = bk.hour * 60 + (bk.minute || 0);
+    const prev = entries[entries.length - 1];
+    if (
+      prev
+      && prev.room_id === bk.room_id && prev.date === bk.date
+      && prev.email === bk.email && prev.studentName === bk.student_name
+      && (prev.purpose || '') === (bk.purpose || '')
+      && prev.endMinutes === start
+    ) {
+      prev.ids.push(bk.id);
+      prev.endMinutes = start + 30;
+      prev.amount = (prev.amount || 0) + (bk.amount || 0);
+      return;
+    }
+    entries.push({
+      type: 'booking',
+      id: bk.id,
+      ids: [bk.id],
+      key: bk.id,
+      room_id: bk.room_id,
+      date: bk.date,
+      hour: bk.hour,
+      minute: bk.minute || 0,
+      startMinutes: start,
+      endMinutes: start + 30,
+      studentName: bk.student_name,
+      email: bk.email,
+      phone: bk.phone,
+      purpose: bk.purpose,
+      amount: bk.amount,
+    });
+  });
+  return entries;
+}
+
+// Times an admin can pick when approving/rescheduling: 7am–11pm in 30-min
+// steps, wider than the public 9am–9pm so late rehearsals can be set.
+const ADMIN_TIME_OPTIONS = [];
+for (let m = 7 * 60; m <= 23 * 60; m += 30) ADMIN_TIME_OPTIONS.push(m);
+
 function monthLabel(d) {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
@@ -90,11 +147,10 @@ export default function AdminDashboard() {
   function openConvert(bk) {
     setConvertingBooking(bk);
     const day = dayNameFromDateKey(bk.date);
-    const startTotal = bk.hour * 60 + (bk.minute || 0);
     setAddForm({
       room_id: bk.room_id,
       days: [day],
-      dayTimes: { [day]: { start: minutesToTimeInput(startTotal), end: minutesToTimeInput(startTotal + 30) } },
+      dayTimes: { [day]: { start: minutesToTimeInput(bk.startMinutes), end: minutesToTimeInput(bk.endMinutes) } },
       batch: bk.purpose || '',
       teacher: '',
       course: '',
@@ -187,7 +243,7 @@ export default function AdminDashboard() {
       await fetch('/api/admin/bookings', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: convertingBooking.id }),
+        body: JSON.stringify({ ids: convertingBooking.ids }),
       }).catch(() => {});
       fetchBookings();
       refreshAllBookings();
@@ -249,6 +305,13 @@ export default function AdminDashboard() {
       });
   }, [allBookings, filterRooms, allBookingsSearch]);
 
+  // Newest date first, then by time within a day — same order as before,
+  // but with back-to-back slots merged into single entries.
+  const mergedAllBookings = useMemo(() =>
+    mergeBookingRows(filteredAllBookings).sort((a, b) =>
+      b.date.localeCompare(a.date) || b.startMinutes - a.startMinutes || a.room_id.localeCompare(b.room_id)
+    ), [filteredAllBookings]);
+
   const [staffList, setStaffList] = useState([]);
 
   // ---- Booking requests (Room 9, Room 10, Basement Hall — see APPROVAL_ROOMS) ----
@@ -278,10 +341,6 @@ export default function AdminDashboard() {
   // Inline "Edit timing" form for one request at a time.
   const [editingRequestKey, setEditingRequestKey] = useState(null);
   const [requestEdit, setRequestEdit] = useState({ room_id: '', date: '', start: 0, end: 0 });
-  // Admins may set times outside public opening hours (e.g. a rehearsal
-  // running to 10:30pm): 7am to 11pm, in 30-minute steps.
-  const REQUEST_TIME_OPTIONS = [];
-  for (let m = 7 * 60; m <= 23 * 60; m += 30) REQUEST_TIME_OPTIONS.push(m);
 
   function openRequestEdit(request) {
     setEditingRequestKey(request.ids.join());
@@ -467,13 +526,13 @@ export default function AdminDashboard() {
       });
   }
 
-  async function handleDeleteBooking(id) {
-    if (!window.confirm('Cancel this booking? This cannot be undone.')) return;
-    setDeletingId(id);
+  async function handleDeleteBooking(entry) {
+    if (!window.confirm(`Cancel this booking (${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)})? This cannot be undone.`)) return;
+    setDeletingId(entry.id);
     const res = await fetch('/api/admin/bookings', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ ids: entry.ids }),
     });
     setDeletingId(null);
     if (res.ok) { fetchBookings(); refreshAllBookings(); }
@@ -540,13 +599,13 @@ export default function AdminDashboard() {
     setEditingBlock(null);
     fetchBlocks();
   }
-  const [editForm, setEditForm] = useState({ room_id: '', date: '', hour: 9, minute: 0 });
+  const [editForm, setEditForm] = useState({ room_id: '', date: '', start: 0, end: 0 });
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   function openEdit(bk) {
     setEditingBooking(bk);
-    setEditForm({ room_id: bk.room_id, date: bk.date, hour: bk.hour, minute: bk.minute || 0 });
+    setEditForm({ room_id: bk.room_id, date: bk.date, start: bk.startMinutes, end: bk.endMinutes });
     setEditError('');
   }
 
@@ -558,11 +617,11 @@ export default function AdminDashboard() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        id: editingBooking.id,
+        ids: editingBooking.ids,
         room_id: editForm.room_id,
         date: editForm.date,
-        hour: Number(editForm.hour),
-        minute: Number(editForm.minute),
+        start: Number(editForm.start),
+        end: Number(editForm.end),
       }),
     });
     const body = await res.json();
@@ -620,21 +679,7 @@ export default function AdminDashboard() {
         end_date: b.end_date,
       }));
 
-    const bookingEntries = bookings
-      .filter(bk => bk.date === dateKey)
-      .map(bk => ({
-        type: 'booking',
-        id: bk.id,
-        room_id: bk.room_id,
-        date: bk.date,
-        hour: bk.hour,
-        minute: bk.minute || 0,
-        startMinutes: bk.hour * 60 + (bk.minute || 0),
-        endMinutes: bk.hour * 60 + (bk.minute || 0) + 30,
-        studentName: bk.student_name,
-        purpose: bk.purpose,
-        amount: bk.amount,
-      }));
+    const bookingEntries = mergeBookingRows(bookings.filter(bk => bk.date === dateKey));
 
     return [...classEntries, ...bookingEntries]
       .filter(passesFilters)
@@ -675,18 +720,15 @@ export default function AdminDashboard() {
   }
 
   function exportAllBookings() {
-    const rows = filteredAllBookings.map(bk => {
-      const start = bk.hour * 60 + (bk.minute || 0);
-      return {
-        Date: bk.date,
-        Time: `${minutesToLabel(start)} - ${minutesToLabel(start + 30)}`,
-        Room: roomName(bk.room_id),
-        Student: bk.student_name || '',
-        Email: bk.email || '',
-        Phone: bk.phone || '',
-        Purpose: bk.purpose || '',
-      };
-    });
+    const rows = mergedAllBookings.map(e => ({
+      Date: e.date,
+      Time: `${minutesToLabel(e.startMinutes)} - ${minutesToLabel(e.endMinutes)}`,
+      Room: roomName(e.room_id),
+      Student: e.studentName || '',
+      Email: e.email || '',
+      Phone: e.phone || '',
+      Purpose: e.purpose || '',
+    }));
     downloadExcel(rows, `all-bookings.xlsx`);
   }
 
@@ -712,19 +754,28 @@ export default function AdminDashboard() {
     return days;
   }, [rangeStart, rangeEnd]);
 
-  const [selectedBookingIds, setSelectedBookingIds] = useState([]);
+  // Selected merged entries for bulk reschedule: { entryKey: [row ids] }.
+  const [selectedGroups, setSelectedGroups] = useState({});
+  const selectedBookingIds = Object.values(selectedGroups).flat();
+  const selectedCount = Object.keys(selectedGroups).length;
   const [bulkRescheduleOpen, setBulkRescheduleOpen] = useState(false);
   const [bulkNewDate, setBulkNewDate] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState('');
 
-  function toggleSelectBooking(id) {
-    setSelectedBookingIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  function toggleSelectBooking(entry) {
+    setSelectedGroups(prev => {
+      const next = { ...prev };
+      if (next[entry.key]) delete next[entry.key];
+      else next[entry.key] = entry.ids;
+      return next;
+    });
   }
 
   function selectAllBookingsToday() {
-    const ids = scheduleForDate(selectedDate).filter(e => e.type === 'booking').map(e => e.id);
-    setSelectedBookingIds(ids);
+    const next = {};
+    scheduleForDate(selectedDate).filter(e => e.type === 'booking').forEach(e => { next[e.key] = e.ids; });
+    setSelectedGroups(next);
   }
 
   function openBulkReschedule() {
@@ -755,7 +806,7 @@ export default function AdminDashboard() {
       setBulkError(`${results.length - failed.length} of ${results.length} moved successfully. ${failed.length} failed \u2014 likely because that room already has something else at the same time on the new date: ${failed.map(f => f.body.error || 'unknown error').join('; ')}`);
     } else {
       setBulkRescheduleOpen(false);
-      setSelectedBookingIds([]);
+      setSelectedGroups({});
     }
     fetchBookings();
     refreshAllBookings();
@@ -804,8 +855,8 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input
               type="checkbox"
-              checked={selectedBookingIds.includes(e.id)}
-              onChange={() => toggleSelectBooking(e.id)}
+              checked={Boolean(selectedGroups[e.key])}
+              onChange={() => toggleSelectBooking(e)}
               style={{ marginRight: 4, width: 16, height: 16, accentColor: 'var(--brass-dark)' }}
               title="Select for bulk reschedule"
             />
@@ -817,7 +868,7 @@ export default function AdminDashboard() {
             </button>
             <button
               className="cta ghost sched-remove"
-              onClick={() => handleDeleteBooking(e.id)}
+              onClick={() => handleDeleteBooking(e)}
               disabled={deletingId === e.id}
             >
               {deletingId === e.id ? 'Cancelling…' : 'Remove'}
@@ -1011,11 +1062,11 @@ export default function AdminDashboard() {
             {canManage && (
               <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap' }}>
                 <button className="cta ghost" onClick={selectAllBookingsToday}>Select all bookings shown</button>
-                {selectedBookingIds.length > 0 && (
+                {selectedCount > 0 && (
                   <>
-                    <button className="cta ghost" onClick={() => setSelectedBookingIds([])}>Clear selection</button>
+                    <button className="cta ghost" onClick={() => setSelectedGroups({})}>Clear selection</button>
                     <button className="cta" onClick={openBulkReschedule}>
-                      Reschedule {selectedBookingIds.length} selected…
+                      Reschedule {selectedCount} selected…
                     </button>
                   </>
                 )}
@@ -1126,43 +1177,28 @@ export default function AdminDashboard() {
               <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
             ) : (
               <div className="sched-list">
-                {filteredAllBookings
-                  .map(bk => {
-                    const entry = {
-                      type: 'booking',
-                      id: bk.id,
-                      room_id: bk.room_id,
-                      date: bk.date,
-                      hour: bk.hour,
-                      minute: bk.minute || 0,
-                      startMinutes: bk.hour * 60 + (bk.minute || 0),
-                      endMinutes: bk.hour * 60 + (bk.minute || 0) + 30,
-                      studentName: bk.student_name,
-                      purpose: bk.purpose,
-                    };
-                    return (
-                      <div className="sched-row" key={bk.id}>
-                        <span className="sched-time">{`${bk.date} \u00b7 ${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)}`}</span>
-                        <span className="sched-room">{roomName(bk.room_id)}</span>
-                        <span className="sched-title">{bk.student_name}{bk.purpose ? ` — ${bk.purpose}` : ''}</span>
-                        <span className="sched-tag sched-tag-booking">Booking</span>
-                        {canManage && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button className="cta ghost sched-remove" onClick={() => openConvert(entry)}>Convert to class</button>
-                            <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
-                            <button
-                              className="cta ghost sched-remove"
-                              onClick={() => handleDeleteBooking(bk.id)}
-                              disabled={deletingId === bk.id}
-                            >
-                              {deletingId === bk.id ? 'Cancelling…' : 'Remove'}
-                            </button>
-                          </div>
-                        )}
+                {mergedAllBookings.map(entry => (
+                  <div className="sched-row" key={entry.key}>
+                    <span className="sched-time">{`${entry.date} \u00b7 ${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)}`}</span>
+                    <span className="sched-room">{roomName(entry.room_id)}</span>
+                    <span className="sched-title">{entry.studentName}{entry.purpose ? ` — ${entry.purpose}` : ''}</span>
+                    <span className="sched-tag sched-tag-booking">Booking</span>
+                    {canManage && (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="cta ghost sched-remove" onClick={() => openConvert(entry)}>Convert to class</button>
+                        <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
+                        <button
+                          className="cta ghost sched-remove"
+                          onClick={() => handleDeleteBooking(entry)}
+                          disabled={deletingId === entry.id}
+                        >
+                          {deletingId === entry.id ? 'Cancelling…' : 'Remove'}
+                        </button>
                       </div>
-                    );
-                  })}
-                {filteredAllBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings match.</p>}
+                    )}
+                  </div>
+                ))}
+                {mergedAllBookings.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No bookings match.</p>}
               </div>
             )}
             <div className="no-print" style={{ display: 'flex', gap: 8, marginTop: '1.5rem' }}>
@@ -1240,13 +1276,13 @@ export default function AdminDashboard() {
                                   setRequestEdit({ ...requestEdit, start, end: Math.max(requestEdit.end, start + 30) });
                                 }}
                               >
-                                {REQUEST_TIME_OPTIONS.slice(0, -1).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                                {ADMIN_TIME_OPTIONS.slice(0, -1).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
                               </select>
                             </label>
                             <label>
                               To
                               <select value={requestEdit.end} onChange={e => setRequestEdit({ ...requestEdit, end: Number(e.target.value) })}>
-                                {REQUEST_TIME_OPTIONS.filter(m => m > requestEdit.start).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                                {ADMIN_TIME_OPTIONS.filter(m => m > requestEdit.start).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
                               </select>
                             </label>
                           </div>
@@ -1391,19 +1427,33 @@ export default function AdminDashboard() {
                   <label htmlFor="edit-date">Date</label>
                   <input id="edit-date" type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} />
                 </div>
+              </div>
+              <div className="field-row">
                 <div className="field">
-                  <label htmlFor="edit-hour">Start time</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <select id="edit-hour" value={editForm.hour} onChange={e => setEditForm({ ...editForm, hour: e.target.value })} style={{ flex: 1 }}>
-                      {HOURS.map(h => <option key={h} value={h}>{fmtHour(h)}</option>)}
-                    </select>
-                    <select id="edit-minute" value={editForm.minute} onChange={e => setEditForm({ ...editForm, minute: e.target.value })} style={{ width: 80 }}>
-                      <option value={0}>:00</option>
-                      <option value={30}>:30</option>
-                    </select>
-                  </div>
+                  <label htmlFor="edit-start">From</label>
+                  <select
+                    id="edit-start"
+                    value={editForm.start}
+                    onChange={e => {
+                      const start = Number(e.target.value);
+                      // Keep the same length when only the start moves.
+                      const length = editForm.end - editForm.start;
+                      setEditForm({ ...editForm, start, end: Math.min(start + length, 23 * 60) });
+                    }}
+                  >
+                    {ADMIN_TIME_OPTIONS.slice(0, -1).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-end">To</label>
+                  <select id="edit-end" value={editForm.end} onChange={e => setEditForm({ ...editForm, end: Number(e.target.value) })}>
+                    {ADMIN_TIME_OPTIONS.filter(m => m > editForm.start).map(m => <option key={m} value={m}>{minutesToLabel(m)}</option>)}
+                  </select>
                 </div>
               </div>
+              <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -4 }}>
+                Was: {roomName(editingBooking.room_id)} &middot; {editingBooking.date} &middot; {minutesToLabel(editingBooking.startMinutes)} &ndash; {minutesToLabel(editingBooking.endMinutes)}
+              </p>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button className="cta" type="submit" disabled={savingEdit}>{savingEdit ? 'Saving…' : 'Save new time'}</button>
                 <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
@@ -1499,7 +1549,7 @@ export default function AdminDashboard() {
       {bulkRescheduleOpen && (
         <div className="modal-backdrop" onClick={() => !bulkSaving && setBulkRescheduleOpen(false)}>
           <div className="modal-panel panel" onClick={e => e.stopPropagation()}>
-            <h3>Reschedule {selectedBookingIds.length} booking{selectedBookingIds.length === 1 ? '' : 's'}</h3>
+            <h3>Reschedule {selectedCount} booking{selectedCount === 1 ? '' : 's'}</h3>
             <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: -8, marginBottom: '1rem' }}>
               Each one keeps its own room and time — only the date changes, for all of them at once.
             </p>
@@ -1510,7 +1560,7 @@ export default function AdminDashboard() {
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="cta" onClick={handleBulkReschedule} disabled={bulkSaving}>
-                {bulkSaving ? 'Rescheduling…' : `Reschedule ${selectedBookingIds.length} booking${selectedBookingIds.length === 1 ? '' : 's'}`}
+                {bulkSaving ? 'Rescheduling…' : `Reschedule ${selectedCount} booking${selectedCount === 1 ? '' : 's'}`}
               </button>
               <button className="cta ghost" onClick={() => setBulkRescheduleOpen(false)} disabled={bulkSaving}>Cancel</button>
             </div>
