@@ -1,7 +1,7 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, minutesToLabel, ROOMS } from '../../../lib/schedule';
+import { roomName, minutesToLabel, BOOKABLE_ROOMS } from '../../../lib/schedule';
 import { slotsLabel } from '../../../lib/bookingEmails';
 
 // The dashboard shows back-to-back 30-min slot rows of the same booking as
@@ -85,7 +85,7 @@ export default async function handler(req, res) {
     const start = Number(req.body.start);
     const end = Number(req.body.end);
     if (ids.length === 0) return res.status(400).json({ error: 'ids is required' });
-    if (!ROOMS.some(r => r.id === room_id)) return res.status(400).json({ error: 'Pick a valid room.' });
+    if (!BOOKABLE_ROOMS.some(r => r.id === room_id)) return res.status(400).json({ error: 'Pick a valid room.' });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return res.status(400).json({ error: 'Pick a valid date.' });
     if (!Number.isInteger(start) || !Number.isInteger(end) || start % 30 || end % 30 || start < 0 || end > 24 * 60 || end <= start) {
       return res.status(400).json({ error: 'The end time must be after the start time, in 30-minute steps.' });
