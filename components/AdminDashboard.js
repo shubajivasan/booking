@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  HOURS, DAY_NAMES, ROOMS, timeToMinutes, minutesToLabel, fmtHour,
+  HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
 } from '../lib/schedule';
 
@@ -927,12 +927,29 @@ export default function AdminDashboard() {
                   Clear room selection
                 </button>
               )}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <button type="button" className="cta ghost" style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
+                  onClick={() => setFilterRooms(ROOMS.filter(r => !r.branch).map(r => r.id))}>
+                  This branch only
+                </button>
+                <button type="button" className="cta ghost" style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
+                  onClick={() => setFilterRooms(ROOMS.filter(r => r.branch).map(r => r.id))}>
+                  Other branches only
+                </button>
+              </div>
               <div className="day-checkboxes" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                {ROOMS.map(r => (
-                  <label key={r.id} className={`day-checkbox ${filterRooms.includes(r.id) ? 'checked' : ''}`}>
-                    <input type="checkbox" checked={filterRooms.includes(r.id)} onChange={() => toggleFilterRoom(r.id)} />
-                    {r.name}
-                  </label>
+                {ROOMS.map((r, i) => (
+                  <div key={r.id} style={{ display: 'contents' }}>
+                    {r.branch && !ROOMS[i - 1]?.branch && (
+                      <p style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-soft)', margin: '10px 0 2px' }}>
+                        Other branches
+                      </p>
+                    )}
+                    <label className={`day-checkbox ${filterRooms.includes(r.id) ? 'checked' : ''}`}>
+                      <input type="checkbox" checked={filterRooms.includes(r.id)} onChange={() => toggleFilterRoom(r.id)} />
+                      {r.name}
+                    </label>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1290,7 +1307,7 @@ export default function AdminDashboard() {
                             <label>
                               Room
                               <select value={requestEdit.room_id} onChange={e => setRequestEdit({ ...requestEdit, room_id: e.target.value })}>
-                                {ROOMS.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
+                                {BOOKABLE_ROOMS.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
                               </select>
                             </label>
                             <label>
@@ -1449,7 +1466,7 @@ export default function AdminDashboard() {
               <div className="field">
                 <label htmlFor="edit-room">Room</label>
                 <select id="edit-room" value={editForm.room_id} onChange={e => setEditForm({ ...editForm, room_id: e.target.value })}>
-                  {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  {BOOKABLE_ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
               <div className="field-row">
