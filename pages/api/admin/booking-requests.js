@@ -1,7 +1,7 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, ROOMS, DAY_NAMES, slotOverlapsBlock, blockAppliesOnDate } from '../../../lib/schedule';
+import { roomName, BOOKABLE_ROOMS, DAY_NAMES, slotOverlapsBlock, blockAppliesOnDate } from '../../../lib/schedule';
 import { sendStudentConfirmation } from '../../../lib/sendAdminNotification';
 import { slotsLabel, studentConfirmedEmail, studentRejectedEmail } from '../../../lib/bookingEmails';
 
@@ -23,7 +23,7 @@ import { slotsLabel, studentConfirmedEmail, studentRejectedEmail } from '../../.
 // Validates an admin's changed timing and turns it into 30-min slot starts.
 function slotsFromChanges(changes) {
   const { room_id, date, start, end } = changes || {};
-  if (!ROOMS.some(r => r.id === room_id)) return { error: 'Pick a valid room.' };
+  if (!BOOKABLE_ROOMS.some(r => r.id === room_id)) return { error: 'Pick a valid room.' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return { error: 'Pick a valid date.' };
   const s = Number(start);
   const e = Number(end);
