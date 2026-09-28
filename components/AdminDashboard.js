@@ -62,6 +62,89 @@ function mergeBookingRows(rows) {
 const ADMIN_TIME_OPTIONS = [];
 for (let m = 7 * 60; m <= 23 * 60; m += 30) ADMIN_TIME_OPTIONS.push(m);
 
+// Rooms that aren't a physical space (online / private class groupings from
+// the branch import). Many classes at the same time there are normal, so
+// the clash check skips them unless the admin asks to include them.
+const NON_PHYSICAL_ROOMS = ['online-duet-class', 'online-group-classes', 'online-one-to-one', 'pvt-group-class', 'pvt-one-to-one-class'];
+
+function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+// Two regular classes can only both run on a date if their date ranges
+// (start_date → end_date, blank = open-ended) overlap.
+function dateRangesOverlap(a, b) {
+  const aFrom = a.start_date || '0000-01-01';
+  const aTo = a.end_date || '9999-12-31';
+  const bFrom = b.start_date || '0000-01-01';
+  const bTo = b.end_date || '9999-12-31';
+  return aFrom <= bTo && bFrom <= aTo;
+}
+
+// Finds (1) regular classes in the same room, same weekday, overlapping
+// times and overlapping date ranges, and (2) upcoming bookings that sit on
+// top of a regular class. Classes that have already ended are ignored.
+function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, todayKey }) {
+  const active = blocks.filter(b =>
+    (!b.end_date || b.end_date >= todayKey)
+    && (includeNonPhysical || !NON_PHYSICAL_ROOMS.includes(b.room_id))
+  );
+
+  const groups = new Map();
+  active.forEach(b => {
+    const key = `${b.room_id}|${b.day_of_week}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(b);
+  });
+
+  const classClashes = [];
+  groups.forEach(list => {
+    const sorted = [...list].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const a = sorted[i];
+        const b = sorted[j];
+        const aS = timeToMinutes(a.start_time), aE = timeToMinutes(a.end_time);
+        const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
+        if (bS >= aE) break; // sorted by start, nothing later can overlap a
+        if (!rangesOverlap(aS, aE, bS, bE) || !dateRangesOverlap(a, b)) continue;
+        const duplicate = aS === bS && aE === bE
+          && (a.teacher || '') === (b.teacher || '')
+          && (a.course || '') === (b.course || '')
+          && (a.batch || '') === (b.batch || '');
+        classClashes.push({
+          key: `${a.id}|${b.id}`,
+          kind: duplicate ? 'duplicate' : 'overlap',
+          room_id: a.room_id,
+          day: a.day_of_week,
+          overlapStart: Math.max(aS, bS),
+          overlapEnd: Math.min(aE, bE),
+          a, b,
+        });
+      }
+    }
+  });
+
+  const bookingClashes = [];
+  bookingEntries.forEach(entry => {
+    if (entry.date < todayKey) return;
+    const [y, m, d] = entry.date.split('-').map(Number);
+    const day = DAY_NAMES[new Date(y, m - 1, d).getDay()];
+    active.forEach(b => {
+      if (b.room_id !== entry.room_id || b.day_of_week !== day || !blockAppliesOnDate(b, entry.date)) return;
+      const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
+      if (!rangesOverlap(entry.startMinutes, entry.endMinutes, bS, bE)) return;
+      bookingClashes.push({ key: `${entry.key}|${b.id}`, entry, block: b });
+    });
+  });
+
+  const dayOrder = d => DAY_NAMES.indexOf(d);
+  classClashes.sort((x, y) =>
+    x.room_id.localeCompare(y.room_id) || dayOrder(x.day) - dayOrder(y.day) || x.overlapStart - y.overlapStart);
+  bookingClashes.sort((x, y) => x.entry.date.localeCompare(y.entry.date) || x.entry.startMinutes - y.entry.startMinutes);
+  return { classClashes, bookingClashes };
+}
+
 function monthLabel(d) {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
@@ -86,6 +169,9 @@ export default function AdminDashboard() {
   const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
+  const [clashIncludeOnline, setClashIncludeOnline] = useState(false);
+  const [clashChecking, setClashChecking] = useState(false);
+  const [clashCheckedAt, setClashCheckedAt] = useState(null);
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
   const [loading, setLoading] = useState(true);
 
@@ -514,13 +600,41 @@ export default function AdminDashboard() {
   }, [view]);
 
   function refreshAllBookings() {
-    if (view !== 'all') return;
+    if (view !== 'all' && view !== 'clashes') return;
     fetch('/api/admin/bookings?all=true')
       .then(r => r.json())
       .then(body => {
         setAllBookings(body.bookings || []);
         setAllBookingsTruncated(Boolean(body.truncated));
       });
+  }
+
+  // "Check now": reloads classes and bookings fresh, then the list below
+  // recalculates from them.
+  async function runClashCheck() {
+    setClashChecking(true);
+    await Promise.all([
+      fetchBlocks(),
+      fetch('/api/admin/bookings?all=true')
+        .then(r => r.json())
+        .then(body => { setAllBookings(body.bookings || []); setAllBookingsTruncated(Boolean(body.truncated)); })
+        .catch(() => {}),
+    ]);
+    setClashCheckedAt(new Date());
+    setClashChecking(false);
+  }
+  useEffect(() => { if (view === 'clashes' && canManage) runClashCheck(); }, [view]);
+
+  const scheduleClashes = useMemo(() => findScheduleClashes(
+    allBlocks,
+    mergeBookingRows(allBookings),
+    { includeNonPhysical: clashIncludeOnline, todayKey: toDateKey(new Date()) },
+  ), [allBlocks, allBookings, clashIncludeOnline]);
+
+  function classClashLine(b) {
+    const who = [b.batch || b.course || 'Class', b.teacher].filter(Boolean).join(' \u2014 ');
+    const dates = (b.start_date || b.end_date) ? ` \u00b7 ${b.start_date || 'any date'} \u2192 ${b.end_date || 'ongoing'}` : '';
+    return `${minutesToLabel(timeToMinutes(b.start_time))}\u2013${minutesToLabel(timeToMinutes(b.end_time))} \u00b7 ${who}${b.batch && b.course ? ` (${b.course})` : ''}${dates}`;
   }
 
   function fetchBookings() {
@@ -904,6 +1018,14 @@ export default function AdminDashboard() {
           {canManage && (
             <button className={view === 'requests' ? 'active' : ''} onClick={() => setView('requests')}>
               Requests{requests.length > 0 && <span className="tab-badge">{requests.length}</span>}
+            </button>
+          )}
+          {canManage && (
+            <button className={view === 'clashes' ? 'active' : ''} onClick={() => setView('clashes')}>
+              Clash check
+              {(scheduleClashes.classClashes.length + scheduleClashes.bookingClashes.length) > 0 && (
+                <span className="tab-badge">{scheduleClashes.classClashes.length + scheduleClashes.bookingClashes.length}</span>
+              )}
             </button>
           )}
           {canManage && (
@@ -1344,6 +1466,95 @@ export default function AdminDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'clashes' && canManage && (
+          <div className="panel">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Clash check</h3>
+              <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center', color: 'var(--ink-soft)' }}>
+                <input type="checkbox" checked={clashIncludeOnline} onChange={e => setClashIncludeOnline(e.target.checked)} />
+                Include online &amp; private class groups
+              </label>
+              <button className="cta" style={{ marginLeft: 'auto' }} onClick={runClashCheck} disabled={clashChecking}>
+                {clashChecking ? 'Checking\u2026' : 'Check now'}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+              Finds regular classes in the same space, on the same day, at overlapping times (and whose date ranges overlap), plus upcoming bookings that sit on top of a regular class. Classes that have already ended are ignored.
+              {clashCheckedAt && <> Last checked {clashCheckedAt.toLocaleTimeString()}.</>}
+            </p>
+
+            <h4 className="clash-heading">
+              Class vs class
+              <span className="clash-count">{scheduleClashes.classClashes.length}</span>
+            </h4>
+            {scheduleClashes.classClashes.length === 0 ? (
+              <p style={{ color: 'var(--ink-soft)' }}>No clashing regular classes. &#10003;</p>
+            ) : (
+              <div className="sched-list">
+                {scheduleClashes.classClashes.map(c => (
+                  <div className="clash-card" key={c.key}>
+                    <div className="clash-card-head">
+                      <b>{roomName(c.room_id)}</b> &middot; every {c.day} &middot; overlap {minutesToLabel(c.overlapStart)}&ndash;{minutesToLabel(c.overlapEnd)}
+                      <span className={`clash-kind clash-kind-${c.kind}`}>{c.kind === 'duplicate' ? 'Duplicate entry' : 'Overlap'}</span>
+                    </div>
+                    {[c.a, c.b].map(b => (
+                      <div className="clash-item" key={b.id}>
+                        <span>{classClashLine(b)}</span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="cta ghost sched-remove" onClick={() => openEditBlock(b)}>Edit</button>
+                          <button className="cta ghost sched-remove" disabled={deletingId === b.id} onClick={() => handleDeleteBlock(b.id)}>
+                            {deletingId === b.id ? 'Removing\u2026' : 'Remove'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <h4 className="clash-heading">
+              Booking vs class (upcoming)
+              <span className="clash-count">{scheduleClashes.bookingClashes.length}</span>
+            </h4>
+            {scheduleClashes.bookingClashes.length === 0 ? (
+              <p style={{ color: 'var(--ink-soft)' }}>No upcoming bookings clash with a regular class. &#10003;</p>
+            ) : (
+              <div className="sched-list">
+                {scheduleClashes.bookingClashes.map(({ key, entry, block }) => (
+                  <div className="clash-card" key={key}>
+                    <div className="clash-card-head">
+                      <b>{roomName(entry.room_id)}</b> &middot; {entry.date}
+                      <span className="clash-kind clash-kind-overlap">Overlap</span>
+                    </div>
+                    <div className="clash-item">
+                      <span>
+                        <span className="sched-tag sched-tag-booking" style={{ marginRight: 8 }}>Booking</span>
+                        {minutesToLabel(entry.startMinutes)}&ndash;{minutesToLabel(entry.endMinutes)} &middot; {entry.studentName}{entry.purpose ? ` \u2014 ${entry.purpose}` : ''}
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="cta ghost sched-remove" onClick={() => openEdit(entry)}>Reschedule</button>
+                        <button className="cta ghost sched-remove" disabled={deletingId === entry.id} onClick={() => handleDeleteBooking(entry)}>
+                          {deletingId === entry.id ? 'Cancelling\u2026' : 'Remove'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="clash-item">
+                      <span>
+                        <span className="sched-tag sched-tag-class" style={{ marginRight: 8 }}>Class</span>
+                        {classClashLine(block)}
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="cta ghost sched-remove" onClick={() => openEditBlock(block)}>Edit</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
