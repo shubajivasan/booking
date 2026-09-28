@@ -696,3 +696,16 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;
   font-size:13px; padding:6px 0; border-top:1px dashed var(--line);
 }
+.clash-rooms{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0.4rem 0 0.8rem; }
+.clash-room-chip{
+  font-family:'Inter',sans-serif; font-size:12px; cursor:pointer;
+  padding:4px 10px; border-radius:999px;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+}
+.clash-room-chip b{ color:var(--maroon); margin-left:4px; }
+.clash-room-chip.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.clash-room-chip.active b{ color:var(--paper); }
+.link-button{
+  background:none; border:none; padding:0; cursor:pointer;
+  font:inherit; color:var(--brass-dark); text-decoration:underline;
+}
