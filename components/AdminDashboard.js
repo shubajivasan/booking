@@ -631,6 +631,23 @@ export default function AdminDashboard() {
     { includeNonPhysical: clashIncludeOnline, todayKey: toDateKey(new Date()) },
   ), [allBlocks, allBookings, clashIncludeOnline]);
 
+  // The room filter at the top of the dashboard also narrows the clash list.
+  const visibleClashes = useMemo(() => {
+    const keep = id => filterRooms.length === 0 || filterRooms.includes(id);
+    return {
+      classClashes: scheduleClashes.classClashes.filter(c => keep(c.room_id)),
+      bookingClashes: scheduleClashes.bookingClashes.filter(c => keep(c.entry.room_id)),
+    };
+  }, [scheduleClashes, filterRooms]);
+
+  // Clash count per room (all rooms, ignoring the filter), for the summary chips.
+  const clashesByRoom = useMemo(() => {
+    const counts = new Map();
+    scheduleClashes.classClashes.forEach(c => counts.set(c.room_id, (counts.get(c.room_id) || 0) + 1));
+    scheduleClashes.bookingClashes.forEach(c => counts.set(c.entry.room_id, (counts.get(c.entry.room_id) || 0) + 1));
+    return ROOMS.filter(r => counts.has(r.id)).map(r => ({ id: r.id, name: r.name, count: counts.get(r.id) }));
+  }, [scheduleClashes]);
+
   function classClashLine(b) {
     const who = [b.batch || b.course || 'Class', b.teacher].filter(Boolean).join(' \u2014 ');
     const dates = (b.start_date || b.end_date) ? ` \u00b7 ${b.start_date || 'any date'} \u2192 ${b.end_date || 'ongoing'}` : '';
@@ -1488,15 +1505,44 @@ export default function AdminDashboard() {
               {clashCheckedAt && <> Last checked {clashCheckedAt.toLocaleTimeString()}.</>}
             </p>
 
+            {clashesByRoom.length > 0 && (
+              <div className="clash-rooms">
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Clashes by room:</span>
+                <button
+                  type="button"
+                  className={`clash-room-chip ${filterRooms.length === 0 ? 'active' : ''}`}
+                  onClick={() => setFilterRooms([])}
+                >
+                  All rooms <b>{scheduleClashes.classClashes.length + scheduleClashes.bookingClashes.length}</b>
+                </button>
+                {clashesByRoom.map(r => (
+                  <button
+                    type="button"
+                    key={r.id}
+                    className={`clash-room-chip ${filterRooms.length === 1 && filterRooms[0] === r.id ? 'active' : ''}`}
+                    onClick={() => setFilterRooms([r.id])}
+                  >
+                    {r.name} <b>{r.count}</b>
+                  </button>
+                ))}
+              </div>
+            )}
+            {filterRooms.length > 0 && (
+              <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                Showing {filterRooms.length === 1 ? roomName(filterRooms[0]) : `${filterRooms.length} selected rooms`} only (room filter at the top).{' '}
+                <button type="button" className="link-button" onClick={() => setFilterRooms([])}>Show all rooms</button>
+              </p>
+            )}
+
             <h4 className="clash-heading">
               Class vs class
-              <span className="clash-count">{scheduleClashes.classClashes.length}</span>
+              <span className="clash-count">{visibleClashes.classClashes.length}</span>
             </h4>
-            {scheduleClashes.classClashes.length === 0 ? (
+            {visibleClashes.classClashes.length === 0 ? (
               <p style={{ color: 'var(--ink-soft)' }}>No clashing regular classes. &#10003;</p>
             ) : (
               <div className="sched-list">
-                {scheduleClashes.classClashes.map(c => (
+                {visibleClashes.classClashes.map(c => (
                   <div className="clash-card" key={c.key}>
                     <div className="clash-card-head">
                       <b>{roomName(c.room_id)}</b> &middot; every {c.day} &middot; overlap {minutesToLabel(c.overlapStart)}&ndash;{minutesToLabel(c.overlapEnd)}
@@ -1520,13 +1566,13 @@ export default function AdminDashboard() {
 
             <h4 className="clash-heading">
               Booking vs class (upcoming)
-              <span className="clash-count">{scheduleClashes.bookingClashes.length}</span>
+              <span className="clash-count">{visibleClashes.bookingClashes.length}</span>
             </h4>
-            {scheduleClashes.bookingClashes.length === 0 ? (
+            {visibleClashes.bookingClashes.length === 0 ? (
               <p style={{ color: 'var(--ink-soft)' }}>No upcoming bookings clash with a regular class. &#10003;</p>
             ) : (
               <div className="sched-list">
-                {scheduleClashes.bookingClashes.map(({ key, entry, block }) => (
+                {visibleClashes.bookingClashes.map(({ key, entry, block }) => (
                   <div className="clash-card" key={key}>
                     <div className="clash-card-head">
                       <b>{roomName(entry.room_id)}</b> &middot; {entry.date}
