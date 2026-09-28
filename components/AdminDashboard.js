@@ -62,10 +62,10 @@ function mergeBookingRows(rows) {
 const ADMIN_TIME_OPTIONS = [];
 for (let m = 7 * 60; m <= 23 * 60; m += 30) ADMIN_TIME_OPTIONS.push(m);
 
-// Rooms that aren't a physical space (online / private class groupings from
-// the branch import). Many classes at the same time there are normal, so
-// the clash check skips them unless the admin asks to include them.
-const NON_PHYSICAL_ROOMS = ['online-duet-class', 'online-group-classes', 'online-one-to-one', 'pvt-group-class', 'pvt-one-to-one-class'];
+// Groupings that aren't a single physical room (online / private / school
+// classes from the branch import). Many classes at the same time there are
+// normal, so the clash check skips them unless the admin ticks the box.
+const NON_PHYSICAL_ROOMS = ['online-duet-class', 'online-group-classes', 'online-one-to-one', 'pvt-group-class', 'pvt-one-to-one-class', 'school'];
 
 function rangesOverlap(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && bStart < aEnd;
@@ -1555,7 +1555,7 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0 }}>Clash check</h3>
               <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center', color: 'var(--ink-soft)' }}>
                 <input type="checkbox" checked={clashIncludeOnline} onChange={e => setClashIncludeOnline(e.target.checked)} />
-                Include online &amp; private class groups
+                Include online, private &amp; school class groups
               </label>
               <button className="cta" style={{ marginLeft: 'auto' }} onClick={runClashCheck} disabled={clashChecking}>
                 {clashChecking ? 'Checking\u2026' : 'Check now'}
