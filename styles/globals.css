@@ -670,3 +670,29 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   padding:7px 10px; border-radius:7px;
   border:1px solid var(--line); background:var(--paper); color:var(--ink);
 }
+
+/* ---------- clash check ---------- */
+.clash-heading{
+  display:flex; align-items:center; gap:8px;
+  font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; text-transform:uppercase;
+  margin:1.4rem 0 0.6rem; color:var(--ink);
+}
+.clash-count{
+  background:var(--paper-dim); color:var(--ink-soft);
+  border-radius:999px; padding:1px 8px; font-size:11px;
+}
+.clash-card{
+  border:1px solid var(--line); border-left:3px solid var(--maroon);
+  border-radius:var(--radius); padding:10px 14px; background:var(--paper);
+}
+.clash-card-head{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:14px; margin-bottom:6px; }
+.clash-kind{
+  margin-left:auto; font-size:11px; letter-spacing:1px; text-transform:uppercase;
+  padding:2px 8px; border-radius:999px;
+}
+.clash-kind-overlap{ background:var(--maroon-bg); color:var(--maroon); }
+.clash-kind-duplicate{ background:var(--paper-dim); color:var(--brass-dark); }
+.clash-item{
+  display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;
+  font-size:13px; padding:6px 0; border-top:1px dashed var(--line);
+}
