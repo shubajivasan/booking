@@ -97,30 +97,91 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
     groups.get(key).push(b);
   });
 
+  const spacesIn = roomId => (ROOMS.find(r => r.id === roomId)?.spaces) || 1;
+  const sameClass = (a, b) =>
+    a.start_time.slice(0, 5) === b.start_time.slice(0, 5)
+    && a.end_time.slice(0, 5) === b.end_time.slice(0, 5)
+    && (a.teacher || '') === (b.teacher || '')
+    && (a.course || '') === (b.course || '')
+    && (a.batch || '') === (b.batch || '');
+
   const classClashes = [];
   groups.forEach(list => {
+    const roomId = list[0].room_id;
+    const day = list[0].day_of_week;
+    const spaces = spacesIn(roomId);
     const sorted = [...list].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+    const duplicatePairs = new Set();
+
+    // 1. The exact same class entered twice is always a mistake, however
+    //    many rooms the space has.
     for (let i = 0; i < sorted.length; i++) {
       for (let j = i + 1; j < sorted.length; j++) {
         const a = sorted[i];
         const b = sorted[j];
-        const aS = timeToMinutes(a.start_time), aE = timeToMinutes(a.end_time);
-        const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
-        if (bS >= aE) break; // sorted by start, nothing later can overlap a
-        if (!rangesOverlap(aS, aE, bS, bE) || !dateRangesOverlap(a, b)) continue;
-        const duplicate = aS === bS && aE === bE
-          && (a.teacher || '') === (b.teacher || '')
-          && (a.course || '') === (b.course || '')
-          && (a.batch || '') === (b.batch || '');
+        if (!sameClass(a, b) || !dateRangesOverlap(a, b)) continue;
+        duplicatePairs.add(`${a.id}|${b.id}`);
         classClashes.push({
-          key: `${a.id}|${b.id}`,
-          kind: duplicate ? 'duplicate' : 'overlap',
-          room_id: a.room_id,
-          day: a.day_of_week,
-          overlapStart: Math.max(aS, bS),
-          overlapEnd: Math.min(aE, bE),
-          a, b,
+          key: `dup|${a.id}|${b.id}`, kind: 'duplicate', room_id: roomId, day, spaces,
+          overlapStart: timeToMinutes(a.start_time), overlapEnd: timeToMinutes(a.end_time),
+          items: [a, b],
         });
+      }
+    }
+
+    if (spaces === 1) {
+      // 2a. One room: any two different classes at overlapping times clash.
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const a = sorted[i];
+          const b = sorted[j];
+          const aS = timeToMinutes(a.start_time), aE = timeToMinutes(a.end_time);
+          const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
+          if (bS >= aE) break; // sorted by start, nothing later can overlap a
+          if (duplicatePairs.has(`${a.id}|${b.id}`)) continue;
+          if (!rangesOverlap(aS, aE, bS, bE) || !dateRangesOverlap(a, b)) continue;
+          classClashes.push({
+            key: `${a.id}|${b.id}`, kind: 'overlap', room_id: roomId, day, spaces,
+            overlapStart: Math.max(aS, bS), overlapEnd: Math.min(aE, bE),
+            items: [a, b],
+          });
+        }
+      }
+      return;
+    }
+
+    // 2b. Several rooms (e.g. a branch with 2 rooms): it's only a clash when
+    //     MORE classes run at the same moment than there are rooms. Walk the
+    //     day in time segments; in each, count the classes running on the
+    //     busiest date (the busiest set always starts on some class's start
+    //     date, or today).
+    const bounds = [...new Set(sorted.flatMap(b => [timeToMinutes(b.start_time), timeToMinutes(b.end_time)]))].sort((x, y) => x - y);
+    let current = null;
+    for (let k = 0; k < bounds.length - 1; k++) {
+      const t0 = bounds[k];
+      const t1 = bounds[k + 1];
+      const running = sorted.filter(b => timeToMinutes(b.start_time) < t1 && timeToMinutes(b.end_time) > t0);
+      let worst = [];
+      if (running.length > spaces) {
+        const dates = [...new Set(running.map(b => (b.start_date && b.start_date > todayKey ? b.start_date : todayKey)))];
+        dates.forEach(d => {
+          const on = running.filter(b => blockAppliesOnDate(b, d));
+          if (on.length > worst.length) worst = on;
+        });
+      }
+      if (worst.length > spaces) {
+        const ids = worst.map(b => b.id).sort().join('|');
+        if (current && current.ids === ids && current.overlapEnd === t0) {
+          current.overlapEnd = t1;
+        } else {
+          current = {
+            key: `over|${roomId}|${day}|${t0}|${ids}`, ids, kind: 'overlap', room_id: roomId, day, spaces,
+            overlapStart: t0, overlapEnd: t1, items: worst,
+          };
+          classClashes.push(current);
+        }
+      } else {
+        current = null;
       }
     }
   });
@@ -1546,9 +1607,14 @@ export default function AdminDashboard() {
                   <div className="clash-card" key={c.key}>
                     <div className="clash-card-head">
                       <b>{roomName(c.room_id)}</b> &middot; every {c.day} &middot; overlap {minutesToLabel(c.overlapStart)}&ndash;{minutesToLabel(c.overlapEnd)}
+                      {c.spaces > 1 && c.kind === 'overlap' && (
+                        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                          &middot; {c.items.length} classes at once, only {c.spaces} rooms
+                        </span>
+                      )}
                       <span className={`clash-kind clash-kind-${c.kind}`}>{c.kind === 'duplicate' ? 'Duplicate entry' : 'Overlap'}</span>
                     </div>
-                    {[c.a, c.b].map(b => (
+                    {c.items.map(b => (
                       <div className="clash-item" key={b.id}>
                         <span>{classClashLine(b)}</span>
                         <div style={{ display: 'flex', gap: 6 }}>
