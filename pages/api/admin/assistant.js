@@ -132,6 +132,10 @@ export default async function handler(req, res) {
   }
 
   const { data: blocks, error: blocksError } = await supabaseAdmin.from('recurring_blocks').select('*');
+  // One-off moves/cancellations of single sessions (empty if the table
+  // hasn't been created yet).
+  const exRes = await supabaseAdmin.from('class_exceptions').select('*');
+  const exceptions = exRes.error ? [] : (exRes.data || []);
   if (blocksError) return res.status(500).json({ error: blocksError.message });
 
   // Bookings are loaded per date, only for dates the AI actually asks about.
@@ -149,12 +153,12 @@ export default async function handler(req, res) {
 
   async function runTool(name, input) {
     try {
-      if (name === 'check_room') return checkRoom(input, blocks, await bookingsFor(input.date));
-      if (name === 'find_free_rooms') return findFreeRooms(input, blocks, await bookingsFor(input.date));
+      if (name === 'check_room') return checkRoom(input, blocks, await bookingsFor(input.date), exceptions);
+      if (name === 'find_free_rooms') return findFreeRooms(input, blocks, await bookingsFor(input.date), exceptions);
       if (name === 'search_teachers') return searchTeachers(input, blocks);
       if (name === 'teacher_schedule') {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date))) throw new Error('Invalid date — use YYYY-MM-DD.');
-        return teacherSchedule(input, blocks);
+        return teacherSchedule(input, blocks, exceptions);
       }
       return { error: `Unknown tool ${name}` };
     } catch (err) {
