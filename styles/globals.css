@@ -766,3 +766,9 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   font-size:11px; letter-spacing:1px; text-transform:uppercase;
   color:var(--ink-soft); margin:10px 0 2px;
 }
+
+/* ---------- request overlaps a class ---------- */
+.request-conflict{
+  display:block; margin-top:6px; padding:6px 10px; border-radius:6px;
+  background:var(--maroon-bg); color:var(--maroon); font-size:12px; line-height:1.5;
+}
