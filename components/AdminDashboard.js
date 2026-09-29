@@ -758,6 +758,44 @@ export default function AdminDashboard() {
   const [staffSaving, setStaffSaving] = useState(false);
   const [staffDeletingId, setStaffDeletingId] = useState(null);
 
+  // Google sign-in access requests (super admin only).
+  const [accessRequests, setAccessRequests] = useState([]);
+  const [accessRoles, setAccessRoles] = useState({}); // request id -> 'staff' | 'admin'
+  const [accessBusyId, setAccessBusyId] = useState(null);
+
+  function fetchAccessRequests() {
+    return fetch('/api/admin/access-requests')
+      .then(r => r.json())
+      .then(body => setAccessRequests(body.requests || []))
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (!canManageStaff) return;
+    fetchAccessRequests();
+    const timer = setInterval(fetchAccessRequests, 120000);
+    return () => clearInterval(timer);
+  }, [canManageStaff]);
+
+  async function handleAccessRequest(r, action) {
+    const role = accessRoles[r.id] || 'staff';
+    const msg = action === 'approve'
+      ? `Give ${r.name || r.email} (${r.email}) access as ${role === 'admin' ? 'Admin' : 'Staff'}? They'll get an email.`
+      : `Decline ${r.name || r.email}'s access request? They'll get an email.`;
+    if (!window.confirm(msg)) return;
+    setAccessBusyId(r.id);
+    const res = await fetch('/api/admin/access-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: r.id, action, role }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setAccessBusyId(null);
+    if (!res.ok) alert(body.error || 'Could not update this request.');
+    fetchAccessRequests();
+    if (action === 'approve') fetchStaff();
+  }
+
   function fetchStaff() {
     setStaffLoading(true);
     fetch('/api/admin/staff')
@@ -771,11 +809,11 @@ export default function AdminDashboard() {
   async function handleAddStaff(e) {
     e.preventDefault();
     setStaffError('');
-    if (!staffForm.name || !staffForm.email || !staffForm.password) {
-      setStaffError('Name, email and password are all required.'); return;
+    if (!staffForm.name || !staffForm.email) {
+      setStaffError('Name and email are required.'); return;
     }
-    if (staffForm.password.length < 8) {
-      setStaffError('Password must be at least 8 characters.'); return;
+    if (staffForm.password && staffForm.password.length < 8) {
+      setStaffError('Password must be at least 8 characters (or leave it blank for Google sign-in only).'); return;
     }
     setStaffSaving(true);
     const res = await fetch('/api/admin/staff', {
@@ -1319,7 +1357,9 @@ export default function AdminDashboard() {
             <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
           )}
           {canManageStaff && (
-            <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>Staff</button>
+            <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>
+              Staff{accessRequests.length > 0 && <span className="tab-badge">{accessRequests.length}</span>}
+            </button>
           )}
         </nav>
       </header>
@@ -2014,7 +2054,44 @@ export default function AdminDashboard() {
 
         {view === 'staff' && (
           <div className="panel">
-            <h3>Add a staff member</h3>
+            <h3>Access requests</h3>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -6 }}>
+              People who signed in with Google but aren&rsquo;t staff yet. Approving creates their account &mdash; they then sign in with Google, no password needed.
+            </p>
+            {accessRequests.length === 0 ? (
+              <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No pending requests.</p>
+            ) : (
+              <div className="sched-list" style={{ marginBottom: '1.6rem' }}>
+                {accessRequests.map(r => (
+                  <div className="booking-row" key={r.id}>
+                    <div className="meta">
+                      <b>{r.name || r.email}</b>
+                      <span className="status-pill status-pending" style={{ marginLeft: 8 }}>Awaiting approval</span>
+                      <br />
+                      {r.email}
+                      <br />
+                      <span style={{ fontSize: 11 }}>Requested {new Date(r.requested_at).toLocaleString()}</span>
+                    </div>
+                    <div className="request-actions">
+                      <select
+                        value={accessRoles[r.id] || 'staff'}
+                        onChange={e => setAccessRoles({ ...accessRoles, [r.id]: e.target.value })}
+                        aria-label="Access level"
+                      >
+                        <option value="staff">Staff</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <button className="cta" disabled={accessBusyId === r.id} onClick={() => handleAccessRequest(r, 'approve')}>
+                        {accessBusyId === r.id ? 'Saving\u2026' : 'Approve'}
+                      </button>
+                      <button className="cta ghost" disabled={accessBusyId === r.id} onClick={() => handleAccessRequest(r, 'reject')}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <h3 style={{ marginTop: '1.6rem' }}>Add a staff member</h3>
             {staffError && <div className="inline-error">{staffError}</div>}
             <form onSubmit={handleAddStaff}>
               <div className="field-row">
@@ -2030,7 +2107,7 @@ export default function AdminDashboard() {
               <div className="field-row">
                 <div className="field">
                   <label htmlFor="staff-password">Password</label>
-                  <input id="staff-password" type="password" placeholder="At least 8 characters" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+                  <input id="staff-password" type="password" placeholder="Optional \u2014 blank = Google sign-in only" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
                 </div>
                 <div className="field">
                   <label htmlFor="staff-role">Access level</label>
