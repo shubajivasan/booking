@@ -24,15 +24,16 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const { name, email, password, role } = req.body || {};
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Name, email and password are all required.' });
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Name and email are required.' });
     }
-    if (String(password).length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    // Password is optional: without one, the person signs in with Google.
+    if (password && String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters (or leave it blank for Google sign-in only).' });
     }
     const finalRole = VALID_ROLES.includes(role) ? role : 'staff';
 
-    const password_hash = hashPassword(password);
+    const password_hash = password ? hashPassword(password) : null;
     const { data, error } = await supabaseAdmin
       .from('staff_users')
       .insert([{ name: String(name).trim(), email: String(email).trim().toLowerCase(), password_hash, role: finalRole }])
