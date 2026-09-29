@@ -772,3 +772,15 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   display:block; margin-top:6px; padding:6px 10px; border-radius:6px;
   background:var(--maroon-bg); color:var(--maroon); font-size:12px; line-height:1.5;
 }
+
+/* ---------- login: access request box ---------- */
+.login-access-box{
+  margin-top:14px; padding:12px 14px; border-radius:8px;
+  background:var(--paper-dim); font-size:13px; line-height:1.6; text-align:left;
+}
+.login-access-box p{ margin:0 0 10px; }
+.login-access-box p:last-child{ margin-bottom:0; }
+.request-actions select{
+  font-family:'Inter',sans-serif; font-size:13px; padding:8px 10px; border-radius:7px;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+}
