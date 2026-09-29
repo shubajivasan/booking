@@ -696,7 +696,12 @@ export default function AdminDashboard() {
       );
       if (input === null) return; // pressed Cancel
       reason = input.trim();
-    } else if (!window.confirm(`Approve ${request.student_name}'s request for ${roomName(request.room_id)} on ${request.date}? They'll get a confirmation email.`)) {
+    } else if (!window.confirm(
+      `Approve ${request.student_name}'s request for ${roomName(request.room_id)} on ${request.date}? They'll get a confirmation email.`
+      + (request.conflicts && request.conflicts.length
+        ? `\n\n\u26a0 This overlaps a regular class: ${request.conflicts.map(c => `${c.time} ${c.label}`).join('; ')}.`
+        : '')
+    )) {
       return;
     }
 
@@ -1695,6 +1700,11 @@ export default function AdminDashboard() {
                         <br />
                         {r.email}{r.phone ? ` \u00b7 ${r.phone}` : ''}
                         {r.purpose && (<><br />Purpose: {r.purpose}</>)}
+                        {r.conflicts && r.conflicts.length > 0 && (
+                          <span className="request-conflict">
+                            &#9888; Overlaps with {r.conflicts.map(c => `${c.time} ${c.label}${c.moved ? ' (moved here for this date)' : ''}`).join('; ')} &mdash; use Edit timing or check before approving.
+                          </span>
+                        )}
                         <br />
                         <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
                           Requested {new Date(r.created_at).toLocaleString()}
