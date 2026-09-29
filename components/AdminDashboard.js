@@ -267,6 +267,12 @@ export default function AdminDashboard() {
     window.location.href = '/admin/login';
   }
 
+  // On phones the tab bar scrolls sideways; keep the selected tab in view.
+  useEffect(() => {
+    const el = document.querySelector('nav.tabs button.active');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }, [view]);
+
   const canManage = Boolean(currentUser) && currentUser.role !== 'staff'; // admin or super_admin
   const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -576,9 +582,10 @@ export default function AdminDashboard() {
   const rangeEnd = useMemo(() => {
     if (view === 'week') return addDays(rangeStart, 6);
     if (view === 'month') {
+      // Sunday of the week containing the month's last day, so the grid
+      // always shows every day of the month (e.g. 29 and 30 Sep 2026).
       const lastOfMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-      return startOfWeek(addDays(lastOfMonth, 6 - lastOfMonth.getDay()));
-      // covers the trailing days of the last displayed week
+      return addDays(startOfWeek(lastOfMonth), 6);
     }
     return selectedDate;
   }, [view, rangeStart, selectedDate]);
@@ -1365,7 +1372,7 @@ export default function AdminDashboard() {
       </header>
 
       <main>
-        <div className="panel no-print" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
             <summary>
               {filterRooms.length === 0
@@ -1525,7 +1532,7 @@ export default function AdminDashboard() {
 
         {(view === 'today' || view === 'day') && (
           <div className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div className="period-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <button className="cta ghost no-print" onClick={() => shiftDate(-1)}>&larr; Prev</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{dayLabel(selectedDate)}</h3>
               <button className="cta ghost no-print" onClick={() => shiftDate(1)}>Next &rarr;</button>
@@ -1559,7 +1566,7 @@ export default function AdminDashboard() {
 
         {view === 'week' && (
           <div className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div className="period-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <button className="cta ghost no-print" onClick={() => shiftDate(-7)}>&larr; Prev week</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>
                 {shortDayLabel(weekDays[0])} – {shortDayLabel(weekDays[6])}
@@ -1601,7 +1608,7 @@ export default function AdminDashboard() {
 
         {view === 'month' && (
           <div className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div className="period-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <button className="cta ghost no-print" onClick={() => shiftMonth(-1)}>&larr; Prev month</button>
               <h3 style={{ margin: 0, textTransform: 'none', fontSize: 15, color: 'var(--ink)' }}>{monthLabel(selectedDate)}</h3>
               <button className="cta ghost no-print" onClick={() => shiftMonth(1)}>Next month &rarr;</button>
