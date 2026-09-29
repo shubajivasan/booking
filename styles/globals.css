@@ -738,3 +738,14 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   padding:10px 14px; border-radius:8px;
   border:1px solid var(--line); background:var(--paper); color:var(--ink);
 }
+
+/* ---------- admin header: signed-in user + log out ---------- */
+.admin-header-top{
+  flex-basis:100%; display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;
+}
+.admin-user{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.admin-user-name{ font-size:13px; color:var(--ink); display:flex; align-items:center; gap:6px; }
+.admin-user-role{
+  font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase;
+  background:var(--paper-dim); color:var(--brass-dark); padding:2px 8px; border-radius:999px;
+}
