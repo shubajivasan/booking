@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { HOURS, DAY_NAMES, slotOverlapsBlock, blockAppliesOnDate, validSlotStarts } from '../../lib/schedule';
+import { HOURS, slotOverlapsBlock, validSlotStarts } from '../../lib/schedule';
+import { loadClassesOnDate } from '../../lib/classOccurrences';
 
 // Public and unauthenticated on purpose — but it only ever returns which
 // slots are taken and why (a plain label), never who booked them or any
@@ -14,16 +15,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'roomId and date are required' });
   }
 
-  const [y, m, d] = date.split('-').map(Number);
-  const dayName = DAY_NAMES[new Date(y, m - 1, d).getDay()];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  }
 
-  const [bookingsRes, blocksRes] = await Promise.all([
-    supabaseAdmin.from('bookings').select('hour, minute').eq('room_id', roomId).eq('date', date).in('status', ['pending', 'confirmed']),
-    supabaseAdmin.from('recurring_blocks').select('start_time, end_time, label, start_date, end_date').eq('room_id', roomId).eq('day_of_week', dayName),
-  ]);
-
+  // Regular classes on this date, with one-off moves/cancellations applied
+  // (a session moved away frees its usual slot; one moved here blocks it).
+  let classSessions;
+  const bookingsRes = await supabaseAdmin.from('bookings').select('hour, minute').eq('room_id', roomId).eq('date', date).in('status', ['pending', 'confirmed']);
   if (bookingsRes.error) return res.status(500).json({ error: bookingsRes.error.message });
-  if (blocksRes.error) return res.status(500).json({ error: blocksRes.error.message });
+  try {
+    classSessions = await loadClassesOnDate(date, roomId);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 
   // Every booked slot as its start time in minutes-from-midnight, e.g. 630
   // for 10:30. Older rows with no minute value are treated as :00, which is
@@ -32,7 +37,7 @@ export default async function handler(req, res) {
 
   const classSlots = {};
   validSlotStarts(HOURS).forEach(startMinutes => {
-    const match = blocksRes.data.find(b => slotOverlapsBlock(startMinutes, 30, b) && blockAppliesOnDate(b, date));
+    const match = classSessions.find(b => slotOverlapsBlock(startMinutes, 30, b));
     if (match) classSlots[startMinutes] = match.label || 'Regular class';
   });
 
