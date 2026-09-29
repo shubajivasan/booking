@@ -1,7 +1,7 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, BOOKABLE_ROOMS, slotOverlapsBlock } from '../../../lib/schedule';
+import { roomName, BOOKABLE_ROOMS, slotOverlapsBlock, timeToMinutes, minutesToLabel } from '../../../lib/schedule';
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
 import { sendStudentConfirmation } from '../../../lib/sendAdminNotification';
 import { slotsLabel, studentConfirmedEmail, studentRejectedEmail } from '../../../lib/bookingEmails';
@@ -76,7 +76,26 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: true })
       .limit(1000);
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ requests: groupRequests(data) });
+
+    // Flag requests that overlap a regular class in the same room that day
+    // (one-off moves/cancellations applied). Other bookings can't overlap:
+    // a pending request already holds its slot.
+    const requests = groupRequests(data);
+    const cache = new Map();
+    for (const r of requests) {
+      const key = `${r.date}|${r.room_id}`;
+      if (!cache.has(key)) {
+        try { cache.set(key, await loadClassesOnDate(r.date, r.room_id)); } catch { cache.set(key, []); }
+      }
+      r.conflicts = cache.get(key)
+        .filter(c => r.slots.some(start => slotOverlapsBlock(start, 30, c)))
+        .map(c => ({
+          time: `${minutesToLabel(timeToMinutes(c.start_time))}\u2013${minutesToLabel(timeToMinutes(c.end_time))}`,
+          label: [c.batch || c.course || c.label || 'Regular class', c.teacher].filter(Boolean).join(' \u2014 '),
+          moved: c.exceptionKind === 'moved-here',
+        }));
+    }
+    return res.status(200).json({ requests });
   }
 
   if (req.method === 'POST') {
