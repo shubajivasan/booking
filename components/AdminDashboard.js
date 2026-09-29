@@ -226,6 +226,15 @@ export default function AdminDashboard() {
     });
   }, []);
 
+  async function handleLogout() {
+    try {
+      await fetch('/api/admin-logout', { method: 'POST' });
+    } catch {
+      // Even if the request fails, send them to the login page.
+    }
+    window.location.href = '/admin/login';
+  }
+
   const canManage = Boolean(currentUser) && currentUser.role !== 'staff'; // admin or super_admin
   const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -1112,9 +1121,22 @@ export default function AdminDashboard() {
   return (
     <>
       <header>
-        <div>
-          <p className="brand-eyebrow">Ajivasan Academy of Performing Arts</p>
-          <h1 className="brand">Schedule dashboard</h1>
+        <div className="admin-header-top">
+          <div>
+            <p className="brand-eyebrow">Ajivasan Academy of Performing Arts</p>
+            <h1 className="brand">Schedule dashboard</h1>
+          </div>
+          <div className="admin-user no-print">
+            {currentUser && (
+              <span className="admin-user-name">
+                {currentUser.name}
+                <span className="admin-user-role">
+                  {currentUser.role === 'super_admin' ? 'Super admin' : currentUser.role === 'admin' ? 'Admin' : 'Staff'}
+                </span>
+              </span>
+            )}
+            <button type="button" className="cta ghost" onClick={handleLogout}>Log out</button>
+          </div>
         </div>
         <nav className="tabs no-print">
           <button className={view === 'today' ? 'active' : ''} onClick={goToday}>Today</button>
