@@ -190,12 +190,29 @@ export default async function handler(req, res) {
     const body = await apiRes.json().catch(() => ({}));
     if (!apiRes.ok) {
       console.error('Assistant API error:', apiRes.status, body);
-      const msg = apiRes.status === 401
-        ? 'The ANTHROPIC_API_KEY in Vercel was rejected. Check it was copied correctly, then redeploy.'
-        : body?.error?.message?.includes('credit')
-          ? 'The Anthropic account is out of credit. Top it up at console.anthropic.com.'
-          : 'The assistant is unavailable right now. Please try again in a moment.';
-      return res.status(502).json({ error: msg });
+      const detail = String(body?.error?.message || '').slice(0, 300);
+      const type = body?.error?.type || '';
+      let msg;
+      if (apiRes.status === 401) {
+        msg = 'The ANTHROPIC_API_KEY in Vercel was rejected. Check it was copied correctly, then redeploy.';
+      } else if (/credit|billing|balance/i.test(detail)) {
+        msg = 'The Anthropic account is out of credit. Add credit under Billing at platform.claude.com.';
+      } else if (apiRes.status === 403) {
+        msg = 'This API key isn’t allowed to use the AI model (permission denied). Check the key’s workspace in the Anthropic console.';
+      } else if (apiRes.status === 404) {
+        msg = 'The AI model isn’t available to this Anthropic account yet.';
+      } else if (apiRes.status === 429) {
+        msg = 'Too many questions in a short time for this Anthropic account. Wait a minute and try again.';
+      } else if (apiRes.status === 529 || apiRes.status >= 500) {
+        msg = 'Anthropic’s service is busy right now. Please try again in a moment.';
+      } else {
+        msg = 'The assistant couldn’t answer.';
+      }
+      // Admin-only screen: show the real reason too, so problems can be fixed
+      // without digging through server logs. (Never contains the key.)
+      return res.status(502).json({
+        error: `${msg}${detail ? ` — Details: ${apiRes.status} ${type} — ${detail}` : ` (error ${apiRes.status})`}`,
+      });
     }
 
     if (body.stop_reason !== 'tool_use' || round === MAX_TOOL_ROUNDS) {
