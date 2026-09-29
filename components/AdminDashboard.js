@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
-  toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate,
+  toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey,
 } from '../lib/schedule';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
@@ -84,7 +84,12 @@ function dateRangesOverlap(a, b) {
 // Finds (1) regular classes in the same room, same weekday, overlapping
 // times and overlapping date ranges, and (2) upcoming bookings that sit on
 // top of a regular class. Classes that have already ended are ignored.
-function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, todayKey }) {
+function prettyDateKey(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, todayKey, exceptions = [] }) {
   const active = blocks.filter(b =>
     (!b.end_date || b.end_date >= todayKey)
     && (includeNonPhysical || !NON_PHYSICAL_ROOMS.includes(b.room_id))
@@ -189,15 +194,37 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
   const bookingClashes = [];
   bookingEntries.forEach(entry => {
     if (entry.date < todayKey) return;
-    const [y, m, d] = entry.date.split('-').map(Number);
-    const day = DAY_NAMES[new Date(y, m - 1, d).getDay()];
-    active.forEach(b => {
-      if (b.room_id !== entry.room_id || b.day_of_week !== day || !blockAppliesOnDate(b, entry.date)) return;
+    // Sessions that actually happen that date (one-off moves applied).
+    classesOnDate(active, exceptions, entry.date).forEach(b => {
+      if (b.room_id !== entry.room_id) return;
       const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
       if (!rangesOverlap(entry.startMinutes, entry.endMinutes, bS, bE)) return;
       bookingClashes.push({ key: `${entry.key}|${b.id}`, entry, block: b });
     });
   });
+
+  // One-off moved sessions: does the new date/time/room collide with
+  // anything that happens there that day?
+  const notEnded = blocks.filter(b => !b.end_date || b.end_date >= todayKey);
+  exceptions
+    .filter(e => e.status === 'moved' && e.new_date && e.new_date >= todayKey)
+    .forEach(e => {
+      const sessions = classesOnDate(notEnded, exceptions, e.new_date);
+      const moved = sessions.find(x => x.exception && x.exception.id === e.id);
+      if (!moved) return;
+      if (!includeNonPhysical && NON_PHYSICAL_ROOMS.includes(moved.room_id)) return;
+      const mS = timeToMinutes(moved.start_time), mE = timeToMinutes(moved.end_time);
+      const others = sessions.filter(x => x !== moved && x.room_id === moved.room_id
+        && rangesOverlap(mS, mE, timeToMinutes(x.start_time), timeToMinutes(x.end_time)));
+      const spaces = (ROOMS.find(r => r.id === moved.room_id)?.spaces) || 1;
+      if (others.length + 1 <= spaces) return;
+      const s0 = Math.max(mS, ...others.map(x => timeToMinutes(x.start_time)));
+      const e0 = Math.min(mE, ...others.map(x => timeToMinutes(x.end_time)));
+      classClashes.push({
+        key: `oneoff|${e.id}`, kind: 'one-off', room_id: moved.room_id, day: weekdayOfDateKey(e.new_date),
+        date: e.new_date, spaces, overlapStart: s0, overlapEnd: Math.max(e0, s0 + 1), items: [moved, ...others],
+      });
+    });
 
   const dayOrder = d => DAY_NAMES.indexOf(d);
   classClashes.sort((x, y) =>
@@ -365,7 +392,89 @@ export default function AdminDashboard() {
 
   // Recurring classes are few enough (a few hundred rows) to fetch once and
   // filter client-side, rather than re-querying on every view/date change.
-  useEffect(() => { fetchBlocks(); }, []);
+  // One-off changes to single sessions of regular classes (moved/cancelled dates).
+  const [allExceptions, setAllExceptions] = useState([]);
+  function fetchExceptions() {
+    return fetch('/api/admin/class-exceptions')
+      .then(r => r.json())
+      .then(body => setAllExceptions(body.exceptions || []))
+      .catch(() => setAllExceptions([]));
+  }
+
+  useEffect(() => { fetchBlocks(); fetchExceptions(); }, []);
+
+  // "This date only" dialog: move or cancel ONE session of a regular class.
+  const [sessionChange, setSessionChange] = useState(null); // { block, originalDate, existing }
+  const [sessionForm, setSessionForm] = useState({ status: 'moved', new_date: '', new_start: '', new_end: '', new_room_id: '', note: '' });
+  const [sessionError, setSessionError] = useState('');
+  const [sessionSaving, setSessionSaving] = useState(false);
+
+  function openSessionChange(entry) {
+    const block = allBlocks.find(b => String(b.id) === String(entry.id));
+    if (!block) return;
+    const existing = entry.exception || null;
+    const originalDate = existing ? existing.original_date : entry.date;
+    setSessionChange({ block, originalDate, existing });
+    setSessionForm({
+      status: existing ? existing.status : 'moved',
+      new_date: existing?.new_date || originalDate,
+      new_start: (existing?.new_start || block.start_time).slice(0, 5),
+      new_end: (existing?.new_end || block.end_time).slice(0, 5),
+      new_room_id: existing?.new_room_id || block.room_id,
+      note: existing?.note || '',
+    });
+    setSessionError('');
+  }
+
+  async function saveSessionChange(force = false) {
+    const f = sessionForm;
+    if (f.status === 'moved') {
+      if (!f.new_date || !f.new_start || !f.new_end) { setSessionError('Pick the new date, start and end time.'); return; }
+      if (f.new_end <= f.new_start) { setSessionError('End time must be after start time.'); return; }
+    }
+    setSessionSaving(true);
+    setSessionError('');
+    const res = await fetch('/api/admin/class-exceptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        block_id: sessionChange.block.id,
+        original_date: sessionChange.originalDate,
+        status: f.status,
+        new_date: f.new_date,
+        new_start: f.new_start,
+        new_end: f.new_end,
+        new_room_id: f.new_room_id,
+        note: f.note,
+        force,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSessionSaving(false);
+    if (res.status === 409 && body.code === 'conflict') {
+      if (window.confirm(`${body.error}\n\nMove it there anyway?`)) return saveSessionChange(true);
+      return;
+    }
+    if (!res.ok) { setSessionError(body.error || 'Could not save this change.'); return; }
+    setSessionChange(null);
+    fetchExceptions();
+  }
+
+  async function undoSessionChange(exception) {
+    if (!window.confirm('Undo this one-off change? The session goes back to its usual day, time and room.')) return;
+    const res = await fetch('/api/admin/class-exceptions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: exception.id }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'Could not undo this change.');
+      return;
+    }
+    setSessionChange(null);
+    fetchExceptions();
+  }
 
   async function handleAddClass(e) {
     e.preventDefault();
@@ -714,6 +823,7 @@ export default function AdminDashboard() {
     setClashChecking(true);
     await Promise.all([
       fetchBlocks(),
+      fetchExceptions(),
       fetch('/api/admin/bookings?all=true')
         .then(r => r.json())
         .then(body => { setAllBookings(body.bookings || []); setAllBookingsTruncated(Boolean(body.truncated)); })
@@ -727,8 +837,8 @@ export default function AdminDashboard() {
   const scheduleClashes = useMemo(() => findScheduleClashes(
     allBlocks,
     mergeBookingRows(allBookings),
-    { includeNonPhysical: clashIncludeOnline, todayKey: toDateKey(new Date()) },
-  ), [allBlocks, allBookings, clashIncludeOnline]);
+    { includeNonPhysical: clashIncludeOnline, todayKey: toDateKey(new Date()), exceptions: allExceptions },
+  ), [allBlocks, allBookings, clashIncludeOnline, allExceptions]);
 
   // The room filter at the top of the dashboard also narrows the clash list.
   const visibleClashes = useMemo(() => {
@@ -899,11 +1009,16 @@ export default function AdminDashboard() {
     const dateKey = toDateKey(date);
     const dayName = DAY_NAMES[date.getDay()];
 
-    const classEntries = allBlocks
-      .filter(b => b.day_of_week === dayName && blockAppliesOnDate(b, dateKey))
+    // includeInactive: sessions cancelled or moved away from this date are
+    // still listed (greyed out) so admins can see and undo the change.
+    const classEntries = classesOnDate(allBlocks, allExceptions, dateKey, { includeInactive: true })
       .map(b => ({
         type: 'class',
         id: b.id,
+        date: dateKey,
+        exception: b.exception || null,
+        exceptionKind: b.exceptionKind || null,
+        inactive: Boolean(b.inactive),
         room_id: b.room_id,
         day_of_week: b.day_of_week,
         start_time: b.start_time,
@@ -930,8 +1045,12 @@ export default function AdminDashboard() {
   function entryToExportRow(dateLabel, e) {
     const time = `${minutesToLabel(e.startMinutes)} - ${minutesToLabel(e.endMinutes)}`;
     if (e.type === 'class') {
+      const type = e.exceptionKind === 'cancelled' ? 'Regular class \u2014 cancelled this date'
+        : e.exceptionKind === 'moved-away' ? `Regular class \u2014 moved to ${e.exception.new_date}`
+          : e.exceptionKind === 'moved-here' ? `Regular class \u2014 moved here from ${e.exception.original_date}`
+            : 'Regular class';
       return {
-        Date: dateLabel, Time: time, Room: roomName(e.room_id), Type: 'Regular class',
+        Date: dateLabel, Time: time, Room: roomName(e.room_id), Type: type,
         Batch: e.batch || '', Teacher: e.teacher || '', Course: e.course || '',
       };
     }
@@ -1054,31 +1173,59 @@ export default function AdminDashboard() {
   function renderEntry(e, i) {
     const time = `${minutesToLabel(e.startMinutes)}–${minutesToLabel(e.endMinutes)}`;
     if (e.type === 'class') {
+      const ex = e.exception;
+      const usual = ex && e.exceptionKind === 'moved-here'
+        ? allBlocks.find(b => String(b.id) === String(e.id))
+        : null;
       return (
-        <div className="sched-row" key={i}>
+        <div className={`sched-row ${e.inactive ? 'sched-row-inactive' : ''}`} key={i}>
           <span className="sched-time">{time}</span>
           <span className="sched-room">{roomName(e.room_id)}</span>
           <span className="sched-title">
             {e.batch || e.course || 'Class'}
             {e.teacher ? ` — ${e.teacher}` : ''}
             {e.batch && e.course ? <span className="sched-subtitle"> ({e.course})</span> : null}
-            {(e.start_date || e.end_date) ? (
+            {!ex && (e.start_date || e.end_date) ? (
               <span className="sched-subtitle"> · {e.start_date || 'any date'} → {e.end_date || 'ongoing'}</span>
             ) : null}
+            {e.exceptionKind === 'moved-here' && usual && (
+              <span className="sched-subtitle"> · usually {usual.day_of_week} {minutesToLabel(timeToMinutes(usual.start_time))}{usual.room_id !== e.room_id ? `, ${roomName(usual.room_id)}` : ''}</span>
+            )}
+            {e.exceptionKind === 'moved-away' && (
+              <span className="sched-subtitle"> · moved to {prettyDateKey(ex.new_date)} {minutesToLabel(timeToMinutes(ex.new_start))}{ex.new_room_id && ex.new_room_id !== e.room_id ? `, ${roomName(ex.new_room_id)}` : ''}</span>
+            )}
+            {ex?.note ? <span className="sched-subtitle"> · {ex.note}</span> : null}
           </span>
-          <span className="sched-tag sched-tag-class">Regular class</span>
+          <span className={`sched-tag ${ex ? 'sched-tag-oneoff' : 'sched-tag-class'}`}>
+            {e.exceptionKind === 'cancelled' ? 'Cancelled this date'
+              : e.exceptionKind === 'moved-away' ? 'Moved (this date)'
+                : e.exceptionKind === 'moved-here' ? 'Moved here (this date)'
+                  : 'Regular class'}
+          </span>
           {canManage && (
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="cta ghost sched-remove" onClick={() => openEditBlock(e)}>
-                Edit
-              </button>
-              <button
-                className="cta ghost sched-remove"
-                onClick={() => handleDeleteBlock(e.id)}
-                disabled={deletingId === e.id}
-              >
-                {deletingId === e.id ? 'Removing…' : 'Remove'}
-              </button>
+              {ex ? (
+                <>
+                  <button className="cta ghost sched-remove" onClick={() => openSessionChange(e)}>Change</button>
+                  <button className="cta ghost sched-remove" onClick={() => undoSessionChange(ex)}>Undo</button>
+                </>
+              ) : (
+                <>
+                  <button className="cta ghost sched-remove" onClick={() => openSessionChange(e)} title="Move or cancel just this date's session">
+                    This date only
+                  </button>
+                  <button className="cta ghost sched-remove" onClick={() => openEditBlock(e)} title="Change every week">
+                    Edit
+                  </button>
+                  <button
+                    className="cta ghost sched-remove"
+                    onClick={() => handleDeleteBlock(e.id)}
+                    disabled={deletingId === e.id}
+                  >
+                    {deletingId === e.id ? 'Removing…' : 'Remove'}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1376,12 +1523,15 @@ export default function AdminDashboard() {
                         ? <p style={{ color: 'var(--ink-soft)', fontSize: 12 }}>—</p>
                         : scheduleForDate(d).map((e, j) => (
                           <div
-                            className={`sched-chip ${e.type === 'class' ? 'sched-chip-class' : 'sched-chip-booking'}`}
+                            className={`sched-chip ${e.type === 'class' ? 'sched-chip-class' : 'sched-chip-booking'} ${e.inactive ? 'sched-chip-inactive' : ''} ${e.exceptionKind === 'moved-here' ? 'sched-chip-oneoff' : ''}`}
                             key={j}
                             title={e.type === 'class' ? [e.batch, e.course, e.teacher].filter(Boolean).join(' · ') : e.purpose}
                           >
                             <div>{minutesToLabel(e.startMinutes)} · {roomName(e.room_id)}</div>
-                            <div>{e.type === 'class' ? (e.batch || e.course || 'Class') : e.studentName}</div>
+                            <div>
+                              {e.type === 'class' ? (e.batch || e.course || 'Class') : e.studentName}
+                              {e.exceptionKind === 'cancelled' ? ' (cancelled)' : e.exceptionKind === 'moved-away' ? ' (moved)' : e.exceptionKind === 'moved-here' ? ' (moved here)' : ''}
+                            </div>
                           </div>
                         ))}
                     </div>
@@ -1410,7 +1560,7 @@ export default function AdminDashboard() {
                 ))}
                 {monthGridDays.map((d, i) => {
                   const entries = scheduleForDate(d);
-                  const classCount = entries.filter(e => e.type === 'class').length;
+                  const classCount = entries.filter(e => e.type === 'class' && !e.inactive).length;
                   const bookingCount = entries.filter(e => e.type === 'booking').length;
                   const inMonth = d.getMonth() === selectedDate.getMonth();
                   return (
@@ -1724,22 +1874,31 @@ export default function AdminDashboard() {
                 {visibleClashes.classClashes.map(c => (
                   <div className="clash-card" key={c.key}>
                     <div className="clash-card-head">
-                      <b>{roomName(c.room_id)}</b> &middot; every {c.day} &middot; overlap {minutesToLabel(c.overlapStart)}&ndash;{minutesToLabel(c.overlapEnd)}
+                      <b>{roomName(c.room_id)}</b> &middot; {c.kind === 'one-off' ? `on ${prettyDateKey(c.date)}` : `every ${c.day}`} &middot; overlap {minutesToLabel(c.overlapStart)}&ndash;{minutesToLabel(c.overlapEnd)}
                       {c.spaces > 1 && c.kind === 'overlap' && (
                         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
                           &middot; {c.items.length} classes at once, only {c.spaces} rooms
                         </span>
                       )}
-                      <span className={`clash-kind clash-kind-${c.kind}`}>{c.kind === 'duplicate' ? 'Duplicate entry' : 'Overlap'}</span>
+                      <span className={`clash-kind clash-kind-${c.kind === 'one-off' ? 'overlap' : c.kind}`}>{c.kind === 'duplicate' ? 'Duplicate entry' : c.kind === 'one-off' ? 'Moved session' : 'Overlap'}</span>
                     </div>
                     {c.items.map(b => (
-                      <div className="clash-item" key={b.id}>
-                        <span>{classClashLine(b)}</span>
+                      <div className="clash-item" key={`${b.id}|${b.exceptionKind || ''}`}>
+                        <span>
+                          {classClashLine(b)}
+                          {b.exceptionKind === 'moved-here' ? ` \u00b7 moved here from ${prettyDateKey(b.exception.original_date)}` : ''}
+                        </span>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="cta ghost sched-remove" onClick={() => openEditBlock(b)}>Edit</button>
-                          <button className="cta ghost sched-remove" disabled={deletingId === b.id} onClick={() => handleDeleteBlock(b.id)}>
-                            {deletingId === b.id ? 'Removing\u2026' : 'Remove'}
-                          </button>
+                          {b.exceptionKind === 'moved-here' ? (
+                            <button className="cta ghost sched-remove" onClick={() => openSessionChange({ id: b.id, exception: b.exception })}>Change this date</button>
+                          ) : (
+                            <button className="cta ghost sched-remove" onClick={() => openEditBlock(b)}>Edit</button>
+                          )}
+                          {b.exceptionKind !== 'moved-here' && (
+                            <button className="cta ghost sched-remove" disabled={deletingId === b.id} onClick={() => handleDeleteBlock(b.id)}>
+                              {deletingId === b.id ? 'Removing\u2026' : 'Remove'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1947,6 +2106,82 @@ export default function AdminDashboard() {
                 <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {sessionChange && (
+        <div className="modal-backdrop" onClick={() => !sessionSaving && setSessionChange(null)}>
+          <div className="modal-panel panel" onClick={e => e.stopPropagation()}>
+            <h3>Change this date only</h3>
+            <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: -8, marginBottom: '1rem' }}>
+              <b style={{ color: 'var(--ink)' }}>
+                {sessionChange.block.batch || sessionChange.block.course || 'Class'}
+                {sessionChange.block.teacher ? ` \u2014 ${sessionChange.block.teacher}` : ''}
+              </b>
+              <br />
+              Usually {sessionChange.block.day_of_week}s, {minutesToLabel(timeToMinutes(sessionChange.block.start_time))}&ndash;{minutesToLabel(timeToMinutes(sessionChange.block.end_time))}, {roomName(sessionChange.block.room_id)}.
+              <br />
+              This change applies to <b style={{ color: 'var(--ink)' }}>{prettyDateKey(sessionChange.originalDate)}</b> only &mdash; every other week stays as it is.
+            </p>
+            {sessionError && <div className="inline-error">{sessionError}</div>}
+
+            <div className="field">
+              <div className="day-checkboxes">
+                <label className={`day-checkbox ${sessionForm.status === 'moved' ? 'checked' : ''}`}>
+                  <input type="radio" name="session-status" checked={sessionForm.status === 'moved'} onChange={() => setSessionForm({ ...sessionForm, status: 'moved' })} />
+                  Move this session
+                </label>
+                <label className={`day-checkbox ${sessionForm.status === 'cancelled' ? 'checked' : ''}`}>
+                  <input type="radio" name="session-status" checked={sessionForm.status === 'cancelled'} onChange={() => setSessionForm({ ...sessionForm, status: 'cancelled' })} />
+                  Cancel this session
+                </label>
+              </div>
+            </div>
+
+            {sessionForm.status === 'moved' && (
+              <>
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="session-date">New date</label>
+                    <input id="session-date" type="date" value={sessionForm.new_date} onChange={e => setSessionForm({ ...sessionForm, new_date: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="session-room">Room</label>
+                    <select id="session-room" value={sessionForm.new_room_id} onChange={e => setSessionForm({ ...sessionForm, new_room_id: e.target.value })}>
+                      {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="session-start">Start time</label>
+                    <input id="session-start" type="time" value={sessionForm.new_start} onChange={e => setSessionForm({ ...sessionForm, new_start: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="session-end">End time</label>
+                    <input id="session-end" type="time" value={sessionForm.new_end} onChange={e => setSessionForm({ ...sessionForm, new_end: e.target.value })} />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="field">
+              <label htmlFor="session-note">Note (optional)</label>
+              <input id="session-note" type="text" maxLength={300} placeholder="e.g. Teacher on leave, made up on Thursday" value={sessionForm.note} onChange={e => setSessionForm({ ...sessionForm, note: e.target.value })} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button className="cta" onClick={() => saveSessionChange(false)} disabled={sessionSaving}>
+                {sessionSaving ? 'Saving\u2026' : sessionForm.status === 'moved' ? 'Move this session' : 'Cancel this session'}
+              </button>
+              {sessionChange.existing && (
+                <button className="cta ghost" onClick={() => undoSessionChange(sessionChange.existing)} disabled={sessionSaving}>
+                  Undo change (back to usual)
+                </button>
+              )}
+              <button className="cta ghost" onClick={() => setSessionChange(null)} disabled={sessionSaving}>Close</button>
+            </div>
           </div>
         </div>
       )}
