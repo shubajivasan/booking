@@ -757,3 +757,12 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
 .sched-tag-oneoff{ background:var(--maroon-bg); color:var(--maroon); }
 .sched-chip-inactive{ opacity:0.5; text-decoration:line-through; }
 .sched-chip-oneoff{ outline:1px dashed var(--maroon); }
+
+/* ---------- room filter groups ---------- */
+.room-group-buttons{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.room-group-buttons .cta{ flex:1 1 45%; font-size:12px; padding:6px 8px; }
+.room-group-buttons .cta.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.room-group-heading{
+  font-size:11px; letter-spacing:1px; text-transform:uppercase;
+  color:var(--ink-soft); margin:10px 0 2px;
+}
