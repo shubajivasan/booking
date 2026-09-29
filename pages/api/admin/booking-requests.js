@@ -1,7 +1,8 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, BOOKABLE_ROOMS, DAY_NAMES, slotOverlapsBlock, blockAppliesOnDate } from '../../../lib/schedule';
+import { roomName, BOOKABLE_ROOMS, slotOverlapsBlock } from '../../../lib/schedule';
+import { loadClassesOnDate } from '../../../lib/classOccurrences';
 import { sendStudentConfirmation } from '../../../lib/sendAdminNotification';
 import { slotsLabel, studentConfirmedEmail, studentRejectedEmail } from '../../../lib/bookingEmails';
 
@@ -36,16 +37,9 @@ function slotsFromChanges(changes) {
 }
 
 async function findClassConflict(roomId, date, slots) {
-  const [y, m, d] = date.split('-').map(Number);
-  const dayName = DAY_NAMES[new Date(y, m - 1, d).getDay()];
-  const { data } = await supabaseAdmin
-    .from('recurring_blocks')
-    .select('start_time, end_time, label, teacher, course, start_date, end_date')
-    .eq('room_id', roomId)
-    .eq('day_of_week', dayName);
-  const clash = (data || []).find(b =>
-    blockAppliesOnDate(b, date) && slots.some(start => slotOverlapsBlock(start, 30, b))
-  );
+  // Regular classes that actually happen on this date (one-off moves applied).
+  const sessions = await loadClassesOnDate(date, roomId);
+  const clash = sessions.find(b => slots.some(start => slotOverlapsBlock(start, 30, b)));
   if (!clash) return null;
   const name = clash.label || [clash.course, clash.teacher].filter(Boolean).join(' \u2014 ') || 'a regular class';
   return `${name} (${String(clash.start_time).slice(0, 5)}\u2013${String(clash.end_time).slice(0, 5)})`;
