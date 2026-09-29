@@ -784,3 +784,68 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   font-family:'Inter',sans-serif; font-size:13px; padding:8px 10px; border-radius:7px;
   border:1px solid var(--line); background:var(--paper); color:var(--ink);
 }
+
+/* ---------- mobile ---------- */
+/* The tab bar scrolls sideways instead of stretching the whole page. */
+nav.tabs{
+  max-width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+nav.tabs::-webkit-scrollbar{ display:none; }
+nav.tabs button{ white-space:nowrap; flex-shrink:0; }
+header > *, .admin-header-top > *{ min-width:0; }
+.room-multiselect-panel{ max-width:calc(100vw - 2.5rem); }
+
+@media (max-width:720px){
+  header{ padding:1.2rem 1rem 1rem; }
+  main{ padding:1rem 1rem 3rem; }
+  h1.brand{ font-size:28px; }
+  .panel{ padding:1rem; }
+  nav.tabs{ width:100%; border-radius:14px; }
+  nav.tabs button{ padding:8px 12px; }
+
+  /* iOS zooms into form fields under 16px; keep them at 16px. */
+  input, select, textarea{ font-size:16px !important; }
+
+  /* Filters: one per line, full width. */
+  /* two per row, "Add regular class" full width underneath */
+  .filter-bar{ gap:8px !important; }
+  .filter-bar > *{ flex:1 1 calc(50% - 4px); min-width:0; }
+  .filter-bar > .cta:last-child{ flex-basis:100%; }
+  .filter-bar select{ padding-top:8px; padding-bottom:8px; }
+  .filter-bar > .room-multiselect > summary{ width:100%; }
+  .filter-bar .cta{ margin-left:0 !important; width:100%; }
+
+  /* Prev / date / Next */
+  .period-nav{ gap:8px; }
+  .period-nav h3{ flex:1; text-align:center; font-size:14px !important; }
+  .period-nav .cta{ padding:8px 10px; font-size:12px; white-space:nowrap; }
+
+  /* Schedule rows: stacked, buttons wrap inside the card. */
+  .sched-row{ grid-template-columns:1fr; gap:6px; }
+  .sched-row > .sched-tag{ justify-self:start; }
+  .sched-row > div:last-child{ flex-wrap:wrap; }
+  .sched-row .sched-remove{ flex:1 1 auto; }
+
+  /* Cards with actions (requests, staff, activity): actions under the text. */
+  .booking-row{ flex-direction:column; align-items:stretch; }
+  .request-actions{ width:100%; }
+  .request-actions .cta, .request-actions select{ flex:1 1 auto; }
+  .booking-row > .cta{ width:100%; }
+
+  .clash-card-head .clash-kind{ margin-left:0; }
+  .clash-item{ flex-direction:column; align-items:flex-start; }
+
+  .week-grid{ grid-template-columns:1fr; }
+  .month-grid{ gap:3px; }
+  .month-cell{ padding:4px; min-height:56px; }
+  .month-cell-count{ font-size:9px; padding:1px 3px; }
+
+  .chat-bubble{ max-width:92%; }
+
+  /* Pop-ups slide up from the bottom and scroll if tall. */
+  .modal-backdrop{ padding:0.75rem; align-items:flex-end; }
+  .modal-panel{ max-height:90vh; overflow-y:auto; }
+}
