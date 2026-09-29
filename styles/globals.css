@@ -749,3 +749,11 @@ button.cta.ghost:hover{ background:var(--paper-dim); }
   font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase;
   background:var(--paper-dim); color:var(--brass-dark); padding:2px 8px; border-radius:999px;
 }
+
+/* ---------- one-off session changes ---------- */
+.sched-row-inactive{ opacity:0.55; }
+.sched-row-inactive .sched-title{ text-decoration:line-through; text-decoration-color:var(--ink-soft); }
+.sched-row-inactive .sched-subtitle{ text-decoration:none; display:inline-block; }
+.sched-tag-oneoff{ background:var(--maroon-bg); color:var(--maroon); }
+.sched-chip-inactive{ opacity:0.5; text-decoration:line-through; }
+.sched-chip-oneoff{ outline:1px dashed var(--maroon); }
