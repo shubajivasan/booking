@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
-  toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey,
+  toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey, ROOM_GROUPS,
 } from '../lib/schedule';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
@@ -84,6 +84,11 @@ function dateRangesOverlap(a, b) {
 // Finds (1) regular classes in the same room, same weekday, overlapping
 // times and overlapping date ranges, and (2) upcoming bookings that sit on
 // top of a regular class. Classes that have already ended are ignored.
+// True when two lists of room ids contain exactly the same rooms.
+function sameRoomSet(a, b) {
+  return a.length === b.length && b.every(id => a.includes(id));
+}
+
 function prettyDateKey(dateKey) {
   const [y, m, d] = dateKey.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -1318,7 +1323,10 @@ export default function AdminDashboard() {
         <div className="panel no-print" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
             <summary>
-              {filterRooms.length === 0 ? 'All rooms' : `${filterRooms.length} room${filterRooms.length === 1 ? '' : 's'} selected`}
+              {filterRooms.length === 0
+                ? 'All rooms'
+                : (ROOM_GROUPS.find(g => sameRoomSet(filterRooms, g.rooms))?.name
+                  || `${filterRooms.length} room${filterRooms.length === 1 ? '' : 's'} selected`)}
             </summary>
             <div className="room-multiselect-panel">
               {filterRooms.length > 0 && (
@@ -1326,28 +1334,28 @@ export default function AdminDashboard() {
                   Clear room selection
                 </button>
               )}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <button type="button" className="cta ghost" style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
-                  onClick={() => setFilterRooms(ROOMS.filter(r => !r.branch).map(r => r.id))}>
-                  This branch only
-                </button>
-                <button type="button" className="cta ghost" style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
-                  onClick={() => setFilterRooms(ROOMS.filter(r => r.branch).map(r => r.id))}>
-                  Other branches only
-                </button>
+              <div className="room-group-buttons">
+                {ROOM_GROUPS.map(g => (
+                  <button
+                    type="button"
+                    key={g.id}
+                    className={`cta ghost ${sameRoomSet(filterRooms, g.rooms) ? 'active' : ''}`}
+                    onClick={() => setFilterRooms(g.rooms)}
+                  >
+                    {g.name}
+                  </button>
+                ))}
               </div>
               <div className="day-checkboxes" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                {ROOMS.map((r, i) => (
-                  <div key={r.id} style={{ display: 'contents' }}>
-                    {r.branch && !ROOMS[i - 1]?.branch && (
-                      <p style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-soft)', margin: '10px 0 2px' }}>
-                        Other branches
-                      </p>
-                    )}
-                    <label className={`day-checkbox ${filterRooms.includes(r.id) ? 'checked' : ''}`}>
-                      <input type="checkbox" checked={filterRooms.includes(r.id)} onChange={() => toggleFilterRoom(r.id)} />
-                      {r.name}
-                    </label>
+                {ROOM_GROUPS.map(g => (
+                  <div key={g.id} style={{ display: 'contents' }}>
+                    <p className="room-group-heading">{g.name}</p>
+                    {g.rooms.map(id => (
+                      <label key={id} className={`day-checkbox ${filterRooms.includes(id) ? 'checked' : ''}`}>
+                        <input type="checkbox" checked={filterRooms.includes(id)} onChange={() => toggleFilterRoom(id)} />
+                        {roomName(id)}
+                      </label>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -1858,7 +1866,7 @@ export default function AdminDashboard() {
             )}
             {filterRooms.length > 0 && (
               <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-                Showing {filterRooms.length === 1 ? roomName(filterRooms[0]) : `${filterRooms.length} selected rooms`} only (room filter at the top).{' '}
+                Showing {filterRooms.length === 1 ? roomName(filterRooms[0]) : (ROOM_GROUPS.find(g => sameRoomSet(filterRooms, g.rooms))?.name || `${filterRooms.length} selected rooms`)} only (room filter at the top).{' '}
                 <button type="button" className="link-button" onClick={() => setFilterRooms([])}>Show all rooms</button>
               </p>
             )}
