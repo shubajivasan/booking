@@ -231,6 +231,35 @@ export default function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [clashIncludeOnline, setClashIncludeOnline] = useState(false);
+
+  // ---- Assistant (AI chat about room / teacher availability) ----
+  const [chatMessages, setChatMessages] = useState([]); // { role: 'user' | 'assistant', content }
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState('');
+
+  async function sendChat(text) {
+    const question = (text ?? chatInput).trim();
+    if (!question || chatSending) return;
+    const next = [...chatMessages, { role: 'user', content: question }];
+    setChatMessages(next);
+    setChatInput('');
+    setChatError('');
+    setChatSending(true);
+    try {
+      const res = await fetch('/api/admin/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) setChatError(body.error || 'The assistant could not answer.');
+      else setChatMessages([...next, { role: 'assistant', content: body.reply, suggestions: body.suggestions || [] }]);
+    } catch {
+      setChatError('Could not reach the assistant. Check your connection.');
+    }
+    setChatSending(false);
+  }
   const [clashChecking, setClashChecking] = useState(false);
   const [clashCheckedAt, setClashCheckedAt] = useState(null);
   const [bookings, setBookings] = useState([]); // bookings for the current visible range
@@ -1098,6 +1127,7 @@ export default function AdminDashboard() {
               Requests{requests.length > 0 && <span className="tab-badge">{requests.length}</span>}
             </button>
           )}
+          <button className={view === 'assistant' ? 'active' : ''} onClick={() => setView('assistant')}>Assistant</button>
           {canManage && (
             <button className={view === 'clashes' ? 'active' : ''} onClick={() => setView('clashes')}>
               Clash check
@@ -1546,6 +1576,72 @@ export default function AdminDashboard() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {view === 'assistant' && (
+          <div className="panel">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Assistant</h3>
+              {chatMessages.length > 0 && (
+                <button className="cta ghost" style={{ marginLeft: 'auto' }} onClick={() => { setChatMessages([]); setChatError(''); }}>
+                  New chat
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+              Ask about room or teacher availability. It checks live classes, bookings and pending requests. It can only look things up &mdash; it can&rsquo;t book or change anything.
+            </p>
+
+            <div className="chat-log">
+              {chatMessages.length === 0 && (
+                <div className="chat-examples">
+                  {[
+                    'Is Room No 10 available on Saturday at 6pm?',
+                    'Which rooms are free tomorrow 5pm to 7pm?',
+                    'Is Ansh free on Friday between 4 and 6pm?',
+                    'Which teachers match \u201cShra\u201d?',
+                    'What is on in Basement Hall this Sunday?',
+                  ].map(q => (
+                    <button type="button" key={q} className="chat-example" onClick={() => sendChat(q)}>{q}</button>
+                  ))}
+                </div>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} style={{ display: 'contents' }}>
+                  <div className={`chat-bubble chat-${m.role}`}>{m.content}</div>
+                  {m.suggestions && m.suggestions.length > 0 && i === chatMessages.length - 1 && (
+                    <div className="chat-examples">
+                      <span style={{ fontSize: 12, color: 'var(--ink-soft)', alignSelf: 'center' }}>Did you mean:</span>
+                      {m.suggestions.map(name => (
+                        <button type="button" key={name} className="chat-example" disabled={chatSending} onClick={() => sendChat(`I mean ${name}`)}>
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {chatSending && <div className="chat-bubble chat-assistant chat-typing">Checking the schedule&hellip;</div>}
+              {chatError && <p className="inline-error" style={{ color: 'var(--maroon)', fontSize: 13 }}>{chatError}</p>}
+            </div>
+
+            <form
+              className="chat-form"
+              onSubmit={e => { e.preventDefault(); sendChat(); }}
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                placeholder="e.g. Is Room 10 free on Saturday at 6pm?"
+                maxLength={500}
+                disabled={chatSending}
+              />
+              <button className="cta" type="submit" disabled={chatSending || !chatInput.trim()}>
+                {chatSending ? 'Asking\u2026' : 'Ask'}
+              </button>
+            </form>
           </div>
         )}
 
