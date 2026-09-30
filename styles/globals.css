@@ -921,3 +921,21 @@ header > *, .admin-header-top > *{ min-width:0; }
   .filter-bar .room-multiselect{ position:static; }
   .filter-bar .room-multiselect-panel{ top:auto; left:1rem; right:1rem; width:auto; margin-top:6px; }
 }
+
+/* ---------- remove-class warning ---------- */
+.remove-class-details{
+  font-size:13px; color:var(--ink-soft); line-height:1.6;
+  padding:10px 12px; border-radius:8px; background:var(--paper); border:1px solid var(--line);
+  margin-bottom:12px;
+}
+.remove-class-details b{ color:var(--ink); font-weight:600; }
+.remove-warning{
+  font-size:13px; line-height:1.55; color:var(--maroon);
+  background:var(--maroon-bg); border:1px solid var(--maroon); border-radius:8px;
+  padding:10px 12px; margin-bottom:12px;
+}
+.remove-confirm-check{ display:flex; gap:8px; align-items:flex-start; font-size:13px; cursor:pointer; }
+.remove-confirm-check input{ margin-top:2px; accent-color:var(--maroon); }
+button.cta.danger{ background:var(--maroon); color:#fff; border-color:var(--maroon); }
+button.cta.danger:hover:not(:disabled){ filter:brightness(1.08); }
+button.cta.danger:disabled{ opacity:0.4; cursor:not-allowed; }
