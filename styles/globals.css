@@ -849,3 +849,7 @@ header > *, .admin-header-top > *{ min-width:0; }
   .modal-backdrop{ padding:0.75rem; align-items:flex-end; }
   .modal-panel{ max-height:90vh; overflow-y:auto; }
 }
+
+/* ---------- week view: teacher name on class chips ---------- */
+.sched-chip-teacher{ font-weight:600; color:var(--ink); margin-top:1px; }
+.sched-chip-inactive .sched-chip-teacher{ font-weight:500; }
