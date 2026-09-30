@@ -89,14 +89,16 @@ function dateRangesOverlap(a, b) {
 function MultiSelectFilter({ allLabel, noun, options, selected, onChange }) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
-  const shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  const matches = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  // Ticked items first, then the rest alphabetically.
+  const shown = [...matches.filter(o => selected.includes(o)), ...matches.filter(o => !selected.includes(o))];
   const toggle = value => onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
   const label = selected.length === 0 ? allLabel
     : selected.length === 1 ? selected[0]
-      : `${selected.length} ${noun} selected`;
+      : `${selected.length} ${noun}`;
   return (
     <details className="room-multiselect">
-      <summary title={selected.join(', ')}>{label}</summary>
+      <summary title={selected.join(', ')} className={selected.length ? 'has-selection' : ''}>{label}</summary>
       <div className="room-multiselect-panel">
         <input
           type="text"
@@ -121,8 +123,11 @@ function MultiSelectFilter({ allLabel, noun, options, selected, onChange }) {
           </button>
         )}
         <div className="day-checkboxes" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          {shown.map(o => (
-            <label key={o} className={`day-checkbox ${selected.includes(o) ? 'checked' : ''}`}>
+          {shown.map((o, i) => (
+            <label
+              key={o}
+              className={`day-checkbox ${selected.includes(o) ? 'checked' : ''} ${i === selected.length - 1 && selected.length > 0 && !q ? 'last-selected' : ''}`}
+            >
               <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
               {o}
             </label>
@@ -316,6 +321,21 @@ export default function AdminDashboard() {
     }
     window.location.href = '/admin/login';
   }
+
+  // Filter dropdowns: close when clicking outside, and only one open at a time.
+  useEffect(() => {
+    function onDown(ev) {
+      document.querySelectorAll('details.room-multiselect[open]').forEach(d => {
+        if (!d.contains(ev.target)) d.removeAttribute('open');
+      });
+    }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, []);
 
   // On phones the tab bar scrolls sideways; keep the selected tab in view.
   useEffect(() => {
@@ -1424,7 +1444,7 @@ export default function AdminDashboard() {
       <main>
         <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
-            <summary>
+            <summary className={filterRooms.length ? 'has-selection' : ''}>
               {filterRooms.length === 0
                 ? 'All rooms'
                 : (ROOM_GROUPS.find(g => sameRoomSet(filterRooms, g.rooms))?.name
