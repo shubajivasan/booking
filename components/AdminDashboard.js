@@ -84,6 +84,56 @@ function dateRangesOverlap(a, b) {
 // Finds (1) regular classes in the same room, same weekday, overlapping
 // times and overlapping date ranges, and (2) upcoming bookings that sit on
 // top of a regular class. Classes that have already ended are ignored.
+// Tick-box dropdown with a search box, for long lists (teachers, courses).
+// selected = [] means "all".
+function MultiSelectFilter({ allLabel, noun, options, selected, onChange }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  const toggle = value => onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+  const label = selected.length === 0 ? allLabel
+    : selected.length === 1 ? selected[0]
+      : `${selected.length} ${noun} selected`;
+  return (
+    <details className="room-multiselect">
+      <summary title={selected.join(', ')}>{label}</summary>
+      <div className="room-multiselect-panel">
+        <input
+          type="text"
+          className="multiselect-search"
+          placeholder={`Search ${noun}\u2026`}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+        />
+        {selected.length > 0 && (
+          <button type="button" className="cta ghost" style={{ width: '100%', marginBottom: 8 }} onClick={() => onChange([])}>
+            Clear ({selected.length} selected)
+          </button>
+        )}
+        {q && shown.length > 0 && (
+          <button
+            type="button"
+            className="cta ghost"
+            style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
+            onClick={() => onChange([...new Set([...selected, ...shown])])}
+          >
+            Select all {shown.length} matching
+          </button>
+        )}
+        <div className="day-checkboxes" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          {shown.map(o => (
+            <label key={o} className={`day-checkbox ${selected.includes(o) ? 'checked' : ''}`}>
+              <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
+              {o}
+            </label>
+          ))}
+          {shown.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: 4 }}>No matches.</p>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 // True when two lists of room ids contain exactly the same rooms.
 function sameRoomSet(a, b) {
   return a.length === b.length && b.every(id => a.includes(id));
@@ -316,8 +366,8 @@ export default function AdminDashboard() {
   function toggleFilterRoom(roomId) {
     setFilterRooms(prev => prev.includes(roomId) ? prev.filter(id => id !== roomId) : [...prev, roomId]);
   }
-  const [filterTeacher, setFilterTeacher] = useState('');
-  const [filterCourse, setFilterCourse] = useState('');
+  const [filterTeachers, setFilterTeachers] = useState([]); // empty = all teachers
+  const [filterCourses, setFilterCourses] = useState([]); // empty = all courses
   const [filterType, setFilterType] = useState('all'); // all | class | booking
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1049,12 +1099,12 @@ export default function AdminDashboard() {
     if (filterType !== 'all' && entry.type !== filterType) return false;
     if (filterRooms.length > 0 && !filterRooms.includes(entry.room_id)) return false;
     if (entry.type === 'class') {
-      if (filterTeacher && entry.teacher !== filterTeacher) return false;
-      if (filterCourse && entry.course !== filterCourse) return false;
+      if (filterTeachers.length > 0 && !filterTeachers.includes(entry.teacher)) return false;
+      if (filterCourses.length > 0 && !filterCourses.includes(entry.course)) return false;
     } else {
       // Teacher/course filters don't apply to student bookings — if either
       // is active, bookings are excluded rather than shown as false matches.
-      if (filterTeacher || filterCourse) return false;
+      if (filterTeachers.length > 0 || filterCourses.length > 0) return false;
     }
     return true;
   }
@@ -1413,21 +1463,15 @@ export default function AdminDashboard() {
               </div>
             </div>
           </details>
-          <select value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
-            <option value="">All teachers</option>
-            {teacherOptions.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select value={filterCourse} onChange={e => setFilterCourse(e.target.value)}>
-            <option value="">All courses</option>
-            {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <MultiSelectFilter allLabel="All teachers" noun="teachers" options={teacherOptions} selected={filterTeachers} onChange={setFilterTeachers} />
+          <MultiSelectFilter allLabel="All courses" noun="courses" options={courseOptions} selected={filterCourses} onChange={setFilterCourses} />
           <select value={filterType} onChange={e => setFilterType(e.target.value)}>
             <option value="all">Classes + bookings</option>
             <option value="class">Regular classes only</option>
             <option value="booking">Student bookings only</option>
           </select>
-          {(filterRooms.length > 0 || filterTeacher || filterCourse || filterType !== 'all') && (
-            <button className="cta ghost" onClick={() => { setFilterRooms([]); setFilterTeacher(''); setFilterCourse(''); setFilterType('all'); }}>
+          {(filterRooms.length > 0 || filterTeachers.length > 0 || filterCourses.length > 0 || filterType !== 'all') && (
+            <button className="cta ghost" onClick={() => { setFilterRooms([]); setFilterTeachers([]); setFilterCourses([]); setFilterType('all'); }}>
               Clear filters
             </button>
           )}
