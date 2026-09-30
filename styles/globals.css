@@ -853,3 +853,15 @@ header > *, .admin-header-top > *{ min-width:0; }
 /* ---------- week view: teacher name on class chips ---------- */
 .sched-chip-teacher{ font-weight:600; color:var(--ink); margin-top:1px; }
 .sched-chip-inactive .sched-chip-teacher{ font-weight:500; }
+
+/* ---------- teacher / course multi-select filters ---------- */
+.multiselect-search{
+  width:100%; box-sizing:border-box; margin-bottom:8px;
+  font-family:'Inter',sans-serif; font-size:13px;
+  padding:8px 10px; border-radius:7px;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+}
+.room-multiselect summary{ max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width:720px){
+  .room-multiselect summary{ max-width:none; }
+}
