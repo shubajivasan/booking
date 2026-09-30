@@ -1592,6 +1592,9 @@ export default function AdminDashboard() {
                               {e.type === 'class' ? (e.batch || e.course || 'Class') : e.studentName}
                               {e.exceptionKind === 'cancelled' ? ' (cancelled)' : e.exceptionKind === 'moved-away' ? ' (moved)' : e.exceptionKind === 'moved-here' ? ' (moved here)' : ''}
                             </div>
+                            {e.type === 'class' && e.teacher && (
+                              <div className="sched-chip-teacher">{e.teacher}</div>
+                            )}
                           </div>
                         ))}
                     </div>
