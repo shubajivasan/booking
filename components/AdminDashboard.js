@@ -628,8 +628,21 @@ export default function AdminDashboard() {
     fetchBlocks();
   }
 
-  async function handleDeleteBlock(id) {
-    if (!window.confirm('Remove this class from the schedule? This cannot be undone.')) return;
+  // "Remove" on a regular class opens a warning window first (removingBlock),
+  // because removing deletes the class from EVERY week, not just one date.
+  const [removingBlock, setRemovingBlock] = useState(null); // { block, date }
+  const [removeConfirmed, setRemoveConfirmed] = useState(false);
+
+  function handleDeleteBlock(id, date = null) {
+    const block = allBlocks.find(b => String(b.id) === String(id));
+    if (!block) return;
+    setRemoveConfirmed(false);
+    setRemovingBlock({ block, date });
+  }
+
+  async function confirmDeleteBlock() {
+    const id = removingBlock.block.id;
+    setRemovingBlock(null);
     setDeletingId(id);
     const res = await fetch('/api/admin/blocks', {
       method: 'DELETE',
@@ -1344,7 +1357,7 @@ export default function AdminDashboard() {
                   </button>
                   <button
                     className="cta ghost sched-remove"
-                    onClick={() => handleDeleteBlock(e.id)}
+                    onClick={() => handleDeleteBlock(e.id, e.date)}
                     disabled={deletingId === e.id}
                   >
                     {deletingId === e.id ? 'Removing…' : 'Remove'}
@@ -2275,6 +2288,52 @@ export default function AdminDashboard() {
                 <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {removingBlock && (
+        <div className="modal-backdrop" onClick={() => setRemovingBlock(null)}>
+          <div className="modal-panel panel" onClick={e => e.stopPropagation()} role="alertdialog" aria-labelledby="remove-title">
+            <h3 id="remove-title">Remove this regular class?</h3>
+            <div className="remove-class-details">
+              <b>
+                {removingBlock.block.batch || removingBlock.block.course || 'Class'}
+                {removingBlock.block.teacher ? ` \u2014 ${removingBlock.block.teacher}` : ''}
+              </b>
+              {removingBlock.block.batch && removingBlock.block.course ? <span> ({removingBlock.block.course})</span> : null}
+              <br />
+              {roomName(removingBlock.block.room_id)} &middot; every {removingBlock.block.day_of_week}, {minutesToLabel(timeToMinutes(removingBlock.block.start_time))}&ndash;{minutesToLabel(timeToMinutes(removingBlock.block.end_time))}
+            </div>
+            <div className="remove-warning">
+              <b>&#9888; This removes the class from every week</b> &mdash; past and future &mdash; and it can&rsquo;t be undone.
+              {removingBlock.date && (
+                <> If the class is just not happening on {prettyDateKey(removingBlock.date)}, use <b>Cancel this date only</b> instead.</>
+              )}
+            </div>
+            <label className="remove-confirm-check">
+              <input type="checkbox" checked={removeConfirmed} onChange={e => setRemoveConfirmed(e.target.checked)} />
+              I understand &mdash; remove this class from every week
+            </label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+              <button className="cta ghost" autoFocus onClick={() => setRemovingBlock(null)}>Keep class</button>
+              {removingBlock.date && (
+                <button
+                  className="cta ghost"
+                  onClick={() => {
+                    const { block, date } = removingBlock;
+                    setRemovingBlock(null);
+                    openSessionChange({ id: block.id, date });
+                    setSessionForm(f => ({ ...f, status: 'cancelled' }));
+                  }}
+                >
+                  Cancel this date only
+                </button>
+              )}
+              <button className="cta danger" disabled={!removeConfirmed} onClick={confirmDeleteBlock} style={{ marginLeft: 'auto' }}>
+                Remove every week
+              </button>
+            </div>
           </div>
         </div>
       )}
