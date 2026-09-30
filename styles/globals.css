@@ -865,3 +865,59 @@ header > *, .admin-header-top > *{ min-width:0; }
 @media (max-width:720px){
   .room-multiselect summary{ max-width:none; }
 }
+
+/* ---------- filter bar: one consistent look ---------- */
+.filter-bar .room-multiselect summary,
+.filter-bar > select{
+  box-sizing:border-box;
+  height:40px;
+  min-width:170px;
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  font-family:'Inter',sans-serif; font-size:13px; font-weight:400;
+  padding:0 12px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background-color:var(--paper);
+  color:var(--ink);
+  max-width:240px;
+}
+.filter-bar > select{
+  appearance:none; -webkit-appearance:none;
+  padding-right:30px;
+  background-image:linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+  background-position:calc(100% - 16px) 17px, calc(100% - 11px) 17px;
+  background-size:5px 5px, 5px 5px;
+  background-repeat:no-repeat;
+}
+.filter-bar .room-multiselect summary::after{ content:'\25BE'; color:var(--ink-soft); font-size:12px; flex-shrink:0; }
+.filter-bar .room-multiselect[open] summary::after{ content:'\25B4'; }
+.filter-bar .room-multiselect summary.has-selection{
+  border-color:var(--brass); background-color:var(--sage-bg); font-weight:500;
+}
+.filter-bar .cta{ height:40px; box-sizing:border-box; }
+
+/* dropdown panel: compact list */
+.filter-bar .room-multiselect-panel{ width:300px; max-height:380px; padding:8px; }
+.room-multiselect-panel .day-checkboxes{ gap:1px; }
+.room-multiselect-panel .day-checkbox{
+  border:none; background:transparent; border-radius:6px;
+  padding:6px 8px; font-size:13px; line-height:1.35;
+}
+.room-multiselect-panel .day-checkbox:hover{ background:var(--paper-dim); }
+.room-multiselect-panel .day-checkbox.checked{
+  background:var(--sage-bg); color:var(--ink); border:none; font-weight:500;
+}
+.room-multiselect-panel .day-checkbox.last-selected{
+  margin-bottom:6px; box-shadow:0 7px 0 -6px var(--line);
+}
+.room-multiselect-panel .cta{ height:auto; padding:7px 10px; font-size:12px; }
+.room-multiselect-panel .room-group-buttons .cta{ padding:6px 8px; }
+
+@media (max-width:720px){
+  .filter-bar .room-multiselect summary,
+  .filter-bar > select{ min-width:0; max-width:none; width:100%; }
+  /* Dropdowns open full-width under their box, never off the screen edge. */
+  .filter-bar{ position:relative; }
+  .filter-bar .room-multiselect{ position:static; }
+  .filter-bar .room-multiselect-panel{ top:auto; left:1rem; right:1rem; width:auto; margin-top:6px; }
+}
