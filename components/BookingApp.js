@@ -12,7 +12,7 @@ const ROOMS = [
   { id: 'R8', name: 'Room No 8', type: 'Practice room', code: '08', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
   { id: 'R9', name: 'Room No 9', type: 'Practice room', code: '09', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
   { id: 'R10', name: 'Room No 10', type: 'Practice room', code: '10', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
-  { id: 'BH', name: 'Studio D', type: 'Multi-purpose hall', code: 'SD', capacity: 80, price: 1200, desc: 'Open hall on the basement level, set up for full rehearsals, workshops and larger gatherings.' },
+  { id: 'BH', name: 'Studio D', type: 'Recording Studio', code: 'SD', capacity: 10, price: 1200, desc: 'Recording studio for up to 10 people.' },
   { id: 'GTR', name: 'Guitar Room', type: 'Instrument room', code: 'GTR', capacity: 8, price: 350, desc: 'Dedicated room fitted out for guitar lessons and practice, with amps and stands on hand.' },
   { id: 'KEY', name: 'Keyboard Room', type: 'Instrument room', code: 'KEY', capacity: 8, price: 350, desc: 'Fitted with keyboards and a piano bench setup for individual and paired keyboard lessons.' },
   { id: 'DRM', name: 'Drum Room', type: 'Instrument room · soundproofed', code: 'DRM', capacity: 6, price: 400, desc: 'Soundproofed room with a full drum kit, built for drum lessons and practice sessions.' },
