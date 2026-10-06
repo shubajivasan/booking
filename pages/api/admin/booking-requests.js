@@ -5,6 +5,7 @@ import { roomName, BOOKABLE_ROOMS, slotOverlapsBlock, timeToMinutes, minutesToLa
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
 import { sendStudentConfirmation } from '../../../lib/sendAdminNotification';
 import { slotsLabel, studentConfirmedEmail, studentRejectedEmail } from '../../../lib/bookingEmails';
+import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 // Booking requests for management-allocated rooms (APPROVAL_ROOMS in
 // lib/schedule.js). Admin and super_admin only — staff can't touch bookings.
@@ -64,6 +65,7 @@ function groupRequests(rows) {
 }
 
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view booking requests.' });
   if (user.role === 'staff') return res.status(403).json({ error: 'Only an admin can review booking requests.' });
