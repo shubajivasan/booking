@@ -3,6 +3,7 @@ import { sendAdminNotification, sendStudentConfirmation } from '../../lib/sendAd
 import { sendWhatsAppNotification } from '../../lib/sendWhatsAppNotification';
 import { roomName, requiresApproval } from '../../lib/schedule';
 import { slotsLabel, adminEmail, studentConfirmedEmail, studentRequestReceivedEmail } from '../../lib/bookingEmails';
+import { loadSpaceDetails } from '../../lib/spaceDetails';
 
 // Resolves after `ms` milliseconds — used to cap how long the booking
 // response waits on notifications.
@@ -22,6 +23,7 @@ function timeout(ms) {
 // of 'confirmed'. A pending request still holds the slot, so nobody else
 // can request the same time while an admin decides.
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   if (req.method !== 'POST') return res.status(405).end();
 
   const { roomId, date, slots, price, name, email, phone, purpose } = req.body || {};
