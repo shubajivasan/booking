@@ -2,6 +2,7 @@ import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { ROOMS } from '../../../lib/schedule';
 import { checkRoom, findFreeRooms, teacherSchedule, searchTeachers } from '../../../lib/scheduleQuery';
+import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 // Admin "Assistant" — answers questions like "Is Room 10 free on Saturday at
 // 6pm?" or "Is Ansh free Friday 5–7pm?" in plain language.
@@ -113,6 +114,7 @@ Teachers in the schedule: ${teachers.join(', ')}.`;
 }
 
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   if (req.method !== 'POST') return res.status(405).end();
 
   const user = await getAdminUser(req);
