@@ -3,6 +3,7 @@ import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, timeToMinutes } from '../../../lib/schedule';
+import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -11,6 +12,7 @@ function timeLabel(hhmmss) {
 }
 
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   const isBranchStaff = isStaffAuthenticated(req);
 
