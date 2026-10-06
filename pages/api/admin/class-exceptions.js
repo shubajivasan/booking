@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, weekdayOfDateKey, overlappingSpaces } from '../../../lib/schedule';
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
+import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 // One-off changes to a single session of a regular class.
 //   GET                       → every one-off change (small table)
@@ -55,6 +56,7 @@ async function findConflicts({ blockId, roomId, date, start, end }) {
 }
 
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to make changes.' });
 
