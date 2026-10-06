@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey, ROOM_GROUPS,
-  spacesOverlap, hallParts, applySpaceNames,
+  spacesOverlap, hallParts, applySpaceNames, CLASS_TYPES, defaultClassType,
 } from '../lib/schedule';
 import { SPACE_CARDS, mergeSpaceDetails } from '../lib/spaces';
 
@@ -400,13 +400,14 @@ export default function AdminDashboard() {
   }
   const [filterTeachers, setFilterTeachers] = useState([]); // empty = all teachers
   const [filterCourses, setFilterCourses] = useState([]); // empty = all courses
+  const [filterClassTypes, setFilterClassTypes] = useState([]); // empty = all class types
   const [filterType, setFilterType] = useState('all'); // all | class | booking
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [convertingBooking, setConvertingBooking] = useState(null); // the booking row being turned into a class, if any
   const [addForm, setAddForm] = useState({
     room_id: '', days: [], dayTimes: {}, // dayTimes: { Monday: { start: '10:00', end: '11:00' }, ... }
-    batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
+    batch: '', teacher: '', course: '', class_type: '', start_date: '', ongoing: true, end_date: '',
   });
   const [addError, setAddError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -459,6 +460,7 @@ export default function AdminDashboard() {
       batch: bk.purpose || '',
       teacher: '',
       course: '',
+      class_type: defaultClassType(bk.room_id),
       start_date: bk.date,
       ongoing: true,
       end_date: '',
@@ -470,7 +472,7 @@ export default function AdminDashboard() {
   function closeAddForm() {
     setShowAddForm(false);
     setConvertingBooking(null);
-    setAddForm({ room_id: '', days: [], dayTimes: {}, batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '' });
+    setAddForm({ room_id: '', days: [], dayTimes: {}, batch: '', teacher: '', course: '', class_type: '', start_date: '', ongoing: true, end_date: '' });
   }
 
   function fetchBlocks() {
@@ -608,6 +610,7 @@ export default function AdminDashboard() {
             batch: addForm.batch,
             teacher: addForm.teacher,
             course: addForm.course,
+            class_type: addForm.class_type,
             start_date: addForm.start_date || null,
             end_date: addForm.ongoing ? null : addForm.end_date,
           }),
@@ -1109,7 +1112,7 @@ export default function AdminDashboard() {
   const [editingBlock, setEditingBlock] = useState(null); // the regular class being edited
   const [blockEditForm, setBlockEditForm] = useState({
     room_id: '', day_of_week: '', start_time: '', end_time: '',
-    batch: '', teacher: '', course: '', start_date: '', ongoing: true, end_date: '',
+    batch: '', teacher: '', course: '', class_type: '', start_date: '', ongoing: true, end_date: '',
   });
   const [blockEditError, setBlockEditError] = useState('');
   const [savingBlockEdit, setSavingBlockEdit] = useState(false);
@@ -1124,6 +1127,7 @@ export default function AdminDashboard() {
       batch: e.batch || '',
       teacher: e.teacher || '',
       course: e.course || '',
+      class_type: e.class_type || '',
       start_date: e.start_date || '',
       ongoing: !e.end_date,
       end_date: e.end_date || '',
@@ -1152,6 +1156,7 @@ export default function AdminDashboard() {
         batch: blockEditForm.batch,
         teacher: blockEditForm.teacher,
         course: blockEditForm.course,
+        class_type: blockEditForm.class_type,
         start_date: blockEditForm.start_date || null,
         end_date: blockEditForm.ongoing ? null : blockEditForm.end_date,
       }),
@@ -1210,10 +1215,11 @@ export default function AdminDashboard() {
     if (entry.type === 'class') {
       if (filterTeachers.length > 0 && !filterTeachers.includes(entry.teacher)) return false;
       if (filterCourses.length > 0 && !filterCourses.includes(entry.course)) return false;
+      if (filterClassTypes.length > 0 && !filterClassTypes.includes(entry.class_type || 'Not set')) return false;
     } else {
       // Teacher/course filters don't apply to student bookings — if either
       // is active, bookings are excluded rather than shown as false matches.
-      if (filterTeachers.length > 0 || filterCourses.length > 0) return false;
+      if (filterTeachers.length > 0 || filterCourses.length > 0 || filterClassTypes.length > 0) return false;
     }
     return true;
   }
@@ -1241,6 +1247,7 @@ export default function AdminDashboard() {
         endMinutes: timeToMinutes(b.end_time),
         teacher: b.teacher,
         course: b.course,
+        class_type: b.class_type || '',
         batch: b.batch,
         label: b.label,
         start_date: b.start_date,
@@ -1265,7 +1272,7 @@ export default function AdminDashboard() {
             : 'Regular class';
       return {
         Date: dateLabel, Time: time, Room: roomName(e.room_id), Type: type,
-        Batch: e.batch || '', Teacher: e.teacher || '', Course: e.course || '',
+        Batch: e.batch || '', Teacher: e.teacher || '', Course: e.course || '', 'Class type': e.class_type || '',
       };
     }
     return {
@@ -1577,13 +1584,14 @@ export default function AdminDashboard() {
           </details>
           <MultiSelectFilter allLabel="All teachers" noun="teachers" options={teacherOptions} selected={filterTeachers} onChange={setFilterTeachers} />
           <MultiSelectFilter allLabel="All courses" noun="courses" options={courseOptions} selected={filterCourses} onChange={setFilterCourses} />
+          <MultiSelectFilter allLabel="All class types" noun="class types" options={[...CLASS_TYPES, 'Not set']} selected={filterClassTypes} onChange={setFilterClassTypes} />
           <select value={filterType} onChange={e => setFilterType(e.target.value)}>
             <option value="all">Classes + bookings</option>
             <option value="class">Regular classes only</option>
             <option value="booking">Student bookings only</option>
           </select>
-          {(filterRooms.length > 0 || filterTeachers.length > 0 || filterCourses.length > 0 || filterType !== 'all') && (
-            <button className="cta ghost" onClick={() => { setFilterRooms([]); setFilterTeachers([]); setFilterCourses([]); setFilterType('all'); }}>
+          {(filterRooms.length > 0 || filterTeachers.length > 0 || filterCourses.length > 0 || filterClassTypes.length > 0 || filterType !== 'all') && (
+            <button className="cta ghost" onClick={() => { setFilterRooms([]); setFilterTeachers([]); setFilterCourses([]); setFilterClassTypes([]); setFilterType('all'); }}>
               Clear filters
             </button>
           )}
@@ -1605,7 +1613,7 @@ export default function AdminDashboard() {
             <div className="field-row">
               <div className="field">
                 <label htmlFor="add-room">Room</label>
-                <select id="add-room" value={addForm.room_id} onChange={e => setAddForm({ ...addForm, room_id: e.target.value })}>
+                <select id="add-room" value={addForm.room_id} onChange={e => setAddForm({ ...addForm, room_id: e.target.value, class_type: !addForm.class_type || addForm.class_type === defaultClassType(addForm.room_id) ? defaultClassType(e.target.value) : addForm.class_type })}>
                   <option value="">Choose a room</option>
                   {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
@@ -1646,18 +1654,27 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="add-batch">Batch name</label>
-              <input id="add-batch" type="text" placeholder="e.g. BHIS - Guitar" value={addForm.batch} onChange={e => setAddForm({ ...addForm, batch: e.target.value })} />
-            </div>
             <div className="field-row">
+              <div className="field">
+                <label htmlFor="add-batch">Batch name</label>
+                <input id="add-batch" type="text" placeholder="e.g. BHIS - Guitar" value={addForm.batch} onChange={e => setAddForm({ ...addForm, batch: e.target.value })} />
+              </div>
               <div className="field">
                 <label htmlFor="add-teacher">Teacher</label>
                 <input id="add-teacher" type="text" placeholder="e.g. Pradeep Sir" value={addForm.teacher} onChange={e => setAddForm({ ...addForm, teacher: e.target.value })} />
               </div>
+            </div>
+            <div className="field-row">
               <div className="field">
                 <label htmlFor="add-course">Course</label>
                 <input id="add-course" type="text" placeholder="e.g. Guitar" value={addForm.course} onChange={e => setAddForm({ ...addForm, course: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="add-classtype">Class type</label>
+                <select id="add-classtype" style={{ width: "100%" }} value={addForm.class_type} onChange={e => setAddForm({ ...addForm, class_type: e.target.value })}>
+                  <option value="">Not set</option>
+                  {CLASS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
             </div>
             <div className="field">
@@ -2594,7 +2611,7 @@ export default function AdminDashboard() {
               {blockEditError && <div className="inline-error">{blockEditError}</div>}
               <div className="field">
                 <label htmlFor="block-edit-room">Room</label>
-                <select id="block-edit-room" value={blockEditForm.room_id} onChange={e => setBlockEditForm({ ...blockEditForm, room_id: e.target.value })}>
+                <select id="block-edit-room" value={blockEditForm.room_id} onChange={e => setBlockEditForm({ ...blockEditForm, room_id: e.target.value, class_type: !blockEditForm.class_type || blockEditForm.class_type === defaultClassType(blockEditForm.room_id) ? defaultClassType(e.target.value) : blockEditForm.class_type })}>
                   {ROOMS.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
@@ -2616,15 +2633,17 @@ export default function AdminDashboard() {
                   <input id="block-edit-end" type="time" value={blockEditForm.end_time} onChange={e => setBlockEditForm({ ...blockEditForm, end_time: e.target.value })} />
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="block-edit-batch">Batch name</label>
-                <input id="block-edit-batch" type="text" value={blockEditForm.batch} onChange={e => setBlockEditForm({ ...blockEditForm, batch: e.target.value })} />
-              </div>
               <div className="field-row">
+                <div className="field">
+                  <label htmlFor="block-edit-batch">Batch name</label>
+                  <input id="block-edit-batch" type="text" value={blockEditForm.batch} onChange={e => setBlockEditForm({ ...blockEditForm, batch: e.target.value })} />
+                </div>
                 <div className="field">
                   <label htmlFor="block-edit-teacher">Teacher</label>
                   <input id="block-edit-teacher" type="text" value={blockEditForm.teacher} onChange={e => setBlockEditForm({ ...blockEditForm, teacher: e.target.value })} />
                 </div>
+              </div>
+              <div className="field-row">
                 <div className="field">
                   <label htmlFor="block-edit-course">Course</label>
                   <input
@@ -2638,6 +2657,13 @@ export default function AdminDashboard() {
                   <datalist id="course-suggestions">
                     {courseOptions.map(c => <option key={c} value={c} />)}
                   </datalist>
+                </div>
+                <div className="field">
+                  <label htmlFor="block-edit-classtype">Class type</label>
+                  <select id="block-edit-classtype" style={{ width: "100%" }} value={blockEditForm.class_type} onChange={e => setBlockEditForm({ ...blockEditForm, class_type: e.target.value })}>
+                    <option value="">Not set</option>
+                    {CLASS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
               </div>
               <div className="field">
