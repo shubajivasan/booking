@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { HOURS, slotOverlapsBlock, validSlotStarts } from '../../lib/schedule';
+import { HOURS, slotOverlapsBlock, validSlotStarts, overlappingSpaces } from '../../lib/schedule';
 import { loadClassesOnDate } from '../../lib/classOccurrences';
 
 // Public and unauthenticated on purpose — but it only ever returns which
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   // Regular classes on this date, with one-off moves/cancellations applied
   // (a session moved away frees its usual slot; one moved here blocks it).
   let classSessions;
-  const bookingsRes = await supabaseAdmin.from('bookings').select('hour, minute').eq('room_id', roomId).eq('date', date).in('status', ['pending', 'confirmed']);
+  const bookingsRes = await supabaseAdmin.from('bookings').select('hour, minute').in('room_id', overlappingSpaces(roomId)).eq('date', date).in('status', ['pending', 'confirmed']);
   if (bookingsRes.error) return res.status(500).json({ error: bookingsRes.error.message });
   try {
     classSessions = await loadClassesOnDate(date, roomId);
