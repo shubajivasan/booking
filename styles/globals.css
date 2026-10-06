@@ -939,3 +939,20 @@ header > *, .admin-header-top > *{ min-width:0; }
 button.cta.danger{ background:var(--maroon); color:#fff; border-color:var(--maroon); }
 button.cta.danger:hover:not(:disabled){ filter:brightness(1.08); }
 button.cta.danger:disabled{ opacity:0.4; cursor:not-allowed; }
+
+/* ---------- AAPA Hall partition picker (public booking page) ---------- */
+.hall-picker{ display:grid; grid-template-columns:repeat(4, 1fr) 1.2fr; gap:8px; }
+.hall-part{
+  font-family:'Inter',sans-serif; font-size:14px; font-weight:500;
+  padding:14px 8px; border-radius:var(--radius); cursor:pointer;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+}
+.hall-part:hover{ border-color:var(--brass); }
+.hall-part.selected{ background:var(--brass); border-color:var(--brass-dark); color:#fff; }
+.hall-part.hall-whole{ font-weight:600; }
+.hall-choice{ margin:12px 0 0; font-size:13px; color:var(--ink-soft); }
+.hall-choice b{ color:var(--ink); }
+@media (max-width:720px){
+  .hall-picker{ grid-template-columns:repeat(2, 1fr); }
+  .hall-part.hall-whole{ grid-column:1 / -1; }
+}
