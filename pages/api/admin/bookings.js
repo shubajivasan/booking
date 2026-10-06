@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, BOOKABLE_ROOMS } from '../../../lib/schedule';
 import { slotsLabel } from '../../../lib/bookingEmails';
+import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 // The dashboard shows back-to-back 30-min slot rows of the same booking as
 // ONE entry, so Remove and Reschedule act on all of that entry's rows
@@ -19,6 +20,7 @@ function describe(rows) {
 }
 
 export default async function handler(req, res) {
+  await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in as staff to view bookings.' });
 
