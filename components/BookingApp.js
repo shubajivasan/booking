@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { requiresApproval } from '../lib/schedule';
+import { requiresApproval, aapaRoomId, roomName as spaceName, hallParts, AAPA_SEATS_PER_PARTITION } from '../lib/schedule';
 
 const ROOMS = [
   { id: 'R1', name: 'Room No 1', type: 'Practice room', code: '01', capacity: 12, price: 300, desc: 'Practice room set up for individual and small-group sessions.' },
@@ -12,11 +12,14 @@ const ROOMS = [
   { id: 'R8', name: 'Room No 8', type: 'Practice room', code: '08', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
   { id: 'R9', name: 'Room No 9', type: 'Practice room', code: '09', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
   { id: 'R10', name: 'Room No 10', type: 'Practice room', code: '10', capacity: 18, price: 400, desc: 'Larger practice room, suited to group classes and rehearsal.' },
-  { id: 'BH', name: 'Basement Hall', type: 'Multi-purpose hall', code: 'BH', capacity: 80, price: 1200, desc: 'Open hall on the basement level, set up for full rehearsals, workshops and larger gatherings.' },
+  { id: 'BH', name: 'Studio D', type: 'Multi-purpose hall', code: 'SD', capacity: 80, price: 1200, desc: 'Open hall on the basement level, set up for full rehearsals, workshops and larger gatherings.' },
   { id: 'GTR', name: 'Guitar Room', type: 'Instrument room', code: 'GTR', capacity: 8, price: 350, desc: 'Dedicated room fitted out for guitar lessons and practice, with amps and stands on hand.' },
   { id: 'KEY', name: 'Keyboard Room', type: 'Instrument room', code: 'KEY', capacity: 8, price: 350, desc: 'Fitted with keyboards and a piano bench setup for individual and paired keyboard lessons.' },
   { id: 'DRM', name: 'Drum Room', type: 'Instrument room · soundproofed', code: 'DRM', capacity: 6, price: 400, desc: 'Soundproofed room with a full drum kit, built for drum lessons and practice sessions.' },
   { id: 'MLB', name: 'Music Lab Room', type: 'Recording and production lab', code: 'MLB', capacity: 10, price: 500, desc: 'Recording and production lab with audio workstations, used for production classes and studio sessions.' },
+  // One card for the whole hall; on its page the student picks partitions.
+  // price 0 = not set yet (bookings are by request; the academy confirms the cost).
+  { id: 'AAPA', name: 'AAPA Hall', type: 'Hall \u00b7 4 partitions', code: 'AAPA', capacity: 4 * AAPA_SEATS_PER_PARTITION, price: 0, partitioned: true, desc: 'A large hall that divides into 4 partitions. Book one partition, several together, or the whole hall.' },
 ];
 
 const HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
@@ -129,17 +132,31 @@ export default function BookingApp() {
 
   const room = ROOMS.find(r => r.id === roomId);
 
+  // AAPA Hall: which partitions the student has picked. The booking is made
+  // for the matching space id ('AAPA-2', 'AAPA-13', … or 'AAPA' = whole hall).
+  const [hallSelection, setHallSelection] = useState([]);
+  const bookingRoomId = room && room.partitioned ? aapaRoomId(hallSelection) : roomId;
+  const bookingRoomName = bookingRoomId ? spaceName(bookingRoomId) : (room ? room.name : '');
+  function toggleHallPart(part) {
+    setHallSelection(prev => (prev.includes(part) ? prev.filter(p => p !== part) : [...prev, part]).sort());
+    setSelectedSlots([]);
+  }
+  function selectWholeHall() {
+    setHallSelection(prev => (prev.length === 4 ? [] : ['1', '2', '3', '4']));
+    setSelectedSlots([]);
+  }
+
   // Load availability whenever the selected room or day changes. Two sources
   // make a start time unavailable: a confirmed one-time booking in
   // `bookings`, or a recurring weekly class in `recurring_blocks` that
   // overlaps that 1-hour window.
   useEffect(() => {
-    if (!roomId) return;
+    if (!bookingRoomId) { setBookedSlots([]); setClassSlots({}); return; }
     let cancelled = false;
     setLoadingSlots(true);
     const dateKey = toDateKey(selectedDate);
 
-    fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`)
+    fetch(`/api/check-availability?roomId=${encodeURIComponent(bookingRoomId)}&date=${encodeURIComponent(dateKey)}`)
       .then(r => r.json())
       .then(body => {
         if (cancelled) return;
@@ -160,10 +177,11 @@ export default function BookingApp() {
       });
 
     return () => { cancelled = true; };
-  }, [roomId, selectedDate]);
+  }, [bookingRoomId, selectedDate]);
 
   function openRoom(id) {
     setRoomId(id);
+    setHallSelection([]);
     setSelectedDate(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
     setSelectedSlots([]);
     setSubmitError('');
@@ -196,10 +214,10 @@ export default function BookingApp() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        roomId,
+        roomId: bookingRoomId,
         date: dateKey,
         slots: selectedSlots,
-        price: room.price,
+        price: room.price || 0,
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || null,
@@ -219,7 +237,7 @@ export default function BookingApp() {
         // Someone else booked one of these exact times in the moment between
         // this page loading and the button being clicked. Refresh availability.
         setSubmitError(body.error || 'One or more of those times were just booked by someone else. Please pick different slots.');
-        const freshRes = await fetch(`/api/check-availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(dateKey)}`).then(r => r.json());
+        const freshRes = await fetch(`/api/check-availability?roomId=${encodeURIComponent(bookingRoomId)}&date=${encodeURIComponent(dateKey)}`).then(r => r.json());
         setBookedSlots(freshRes.bookedSlots || []);
         setSelectedSlots([]);
         setView('room');
@@ -241,7 +259,7 @@ export default function BookingApp() {
 
     setConfirmation({
       id: ids[0],
-      room: room.name,
+      room: bookingRoomName,
       code: room.code,
       date: selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
       hours: timeRangeLabel(selectedSlots),
@@ -350,7 +368,9 @@ export default function BookingApp() {
             <div className="detail-head">
               <div>
                 <h2>{room.name}</h2>
-                <p className="room-type">{room.type} &middot; seats {room.capacity}</p>
+                <p className="room-type">
+                  {room.type} &middot; {room.partitioned ? `seats ${AAPA_SEATS_PER_PARTITION} per partition, ${room.capacity} whole hall` : `seats ${room.capacity}`}
+                </p>
               </div>
               <div className="detail-code-badge">{room.code}</div>
             </div>
@@ -360,6 +380,36 @@ export default function BookingApp() {
             {requiresApproval(room.id) && (
               <div className="approval-note">
                 <b>Booked on request.</b> This space is allocated by the academy&rsquo;s management. You can pick your times and send a request &mdash; it will be confirmed once an admin approves it, and you&rsquo;ll get an email either way.
+              </div>
+            )}
+            {room.partitioned && (
+              <div className="panel" style={{ marginBottom: '1.6rem' }}>
+                <h3>Choose partitions</h3>
+                <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink-soft)' }}>
+                  Pick one or more partitions, or the whole hall. Times are shown as available only when every partition you picked is free.
+                </p>
+                <div className="hall-picker">
+                  {['1', '2', '3', '4'].map(p => (
+                    <button
+                      type="button"
+                      key={p}
+                      className={`hall-part ${hallSelection.includes(p) ? 'selected' : ''}`}
+                      aria-pressed={hallSelection.includes(p)}
+                      onClick={() => toggleHallPart(p)}
+                    >
+                      Partition {p}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`hall-part hall-whole ${hallSelection.length === 4 ? 'selected' : ''}`}
+                    aria-pressed={hallSelection.length === 4}
+                    onClick={selectWholeHall}
+                  >
+                    Whole hall
+                  </button>
+                </div>
+                {bookingRoomId && <p className="hall-choice">Booking: <b>{bookingRoomName}</b></p>}
               </div>
             )}
             <div className="panel">
@@ -390,7 +440,9 @@ export default function BookingApp() {
                 </label>
               </div>
               <h3 style={{ marginTop: '1.6rem' }}>Available times</h3>
-              {loadingSlots ? (
+              {room.partitioned && !bookingRoomId ? (
+                <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Choose at least one partition above to see available times.</p>
+              ) : loadingSlots ? (
                 <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Checking availability&hellip;</p>
               ) : availabilityError ? (
                 <div className="inline-error">{availabilityError}</div>
@@ -448,7 +500,7 @@ export default function BookingApp() {
             <div className="detail-head">
               <div>
                 <h2>Your details</h2>
-                <p className="room-type">{room.name} &middot; {dayLabel(selectedDate)} &middot; {timeRangeLabel(selectedSlots)}</p>
+                <p className="room-type">{bookingRoomName} &middot; {dayLabel(selectedDate)} &middot; {timeRangeLabel(selectedSlots)}</p>
               </div>
             </div>
             {submitError && <div className="inline-error">{submitError}</div>}
@@ -477,7 +529,7 @@ export default function BookingApp() {
             <div className="summary-bar">
               <div className="total">
                 {timeRangeLabel(selectedSlots)}
-                <span>{durationLabel(selectedSlots.length)} &middot; {room.name}</span>
+                <span>{durationLabel(selectedSlots.length)} &middot; {bookingRoomName}</span>
               </div>
               <button className="cta" disabled={submitting} onClick={handleConfirmBooking}>
                 {requiresApproval(room.id)
@@ -530,7 +582,8 @@ export default function BookingApp() {
               <>
                 <div className="intro"><p>Bookings made from this browser.</p></div>
                 {myBookings.map(b => {
-                  const r = ROOMS.find(x => x.id === b.room_id);
+                  const r = ROOMS.find(x => x.id === b.room_id)
+                    || (hallParts(b.room_id) ? { name: spaceName(b.room_id), code: 'AAPA' } : null);
                   const startMinutes = b.hour * 60 + (b.minute || 0);
                   return (
                     <div className="booking-row" key={b.id}>
