@@ -2,10 +2,22 @@ import { getAdminUser } from '../../../lib/adminAuth';
 import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { roomName, minutesToLabel, timeToMinutes } from '../../../lib/schedule';
+import { roomName, minutesToLabel, timeToMinutes, CLASS_TYPES } from '../../../lib/schedule';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+// '' / null = not set; anything else must be one of CLASS_TYPES.
+function cleanClassType(v) {
+  if (v === undefined) return undefined; // not sent: leave as is
+  if (!v) return null;
+  return CLASS_TYPES.includes(v) ? v : false;
+}
+function missingColumn(error) {
+  return /class_type/.test(error?.message || '')
+    ? 'The database is missing the class type column. Run migration-class-type.sql in Supabase first.'
+    : error.message;
+}
 
 function timeLabel(hhmmss) {
   return minutesToLabel(timeToMinutes(hhmmss));
@@ -30,6 +42,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const { room_id, days, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
+    const class_type = cleanClassType(req.body?.class_type);
+    if (class_type === false) return res.status(400).json({ error: 'Pick a valid class type.' });
 
     const dayList = Array.isArray(days) && days.length ? days : (day_of_week ? [day_of_week] : []);
 
@@ -57,6 +71,7 @@ export default async function handler(req, res) {
       batch: batch || null,
       teacher: teacher || null,
       course: course || null,
+      ...(class_type !== undefined ? { class_type } : {}),
       start_date: start_date || null,
       end_date: end_date || null,
       label,
@@ -67,7 +82,7 @@ export default async function handler(req, res) {
       .insert(rows)
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(500).json({ error: missingColumn(error) });
 
     if (user) {
       await logActivity({
@@ -84,6 +99,8 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Only an admin can edit a regular class.' });
     }
     const { id, room_id, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
+    const class_type = cleanClassType(req.body?.class_type);
+    if (class_type === false) return res.status(400).json({ error: 'Pick a valid class type.' });
     if (!id) return res.status(400).json({ error: 'id is required.' });
     if (!room_id || !day_of_week || !start_time || !end_time) {
       return res.status(400).json({ error: 'Room, day, start time and end time are all required.' });
@@ -107,6 +124,7 @@ export default async function handler(req, res) {
         batch: batch || null,
         teacher: teacher || null,
         course: course || null,
+        ...(class_type !== undefined ? { class_type } : {}),
         start_date: start_date || null,
         end_date: end_date || null,
         label,
@@ -114,7 +132,7 @@ export default async function handler(req, res) {
       .eq('id', id)
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(500).json({ error: missingColumn(error) });
 
     if (user) {
       await logActivity({
