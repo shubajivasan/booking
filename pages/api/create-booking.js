@@ -26,13 +26,14 @@ export default async function handler(req, res) {
 
   const { roomId, date, slots, price, name, email, phone, purpose } = req.body || {};
 
-  if (!roomId || !date || !Array.isArray(slots) || slots.length === 0 || !name || !email || !price) {
+  // price can be 0 for spaces whose price isn't set yet (e.g. AAPA Hall).
+  if (!roomId || !date || !Array.isArray(slots) || slots.length === 0 || !name || !email || price == null) {
     return res.status(400).json({ error: 'Missing required booking details' });
   }
 
   const needsApproval = requiresApproval(roomId);
   const status = needsApproval ? 'pending' : 'confirmed';
-  const pricePerSlot = Math.round(price / 2);
+  const pricePerSlot = Math.round((Number(price) || 0) / 2);
 
   const rows = slots.map(startMinutes => ({
     room_id: roomId,
