@@ -3,8 +3,9 @@ import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey, ROOM_GROUPS,
-  spacesOverlap, hallParts,
+  spacesOverlap, hallParts, applySpaceNames,
 } from '../lib/schedule';
+import { SPACE_CARDS, mergeSpaceDetails } from '../lib/spaces';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
 // slots of the same booking (same room, date, student, email and purpose)
@@ -897,6 +898,70 @@ export default function AdminDashboard() {
     if (action === 'approve') fetchStaff();
   }
 
+  // ---- Spaces: details shown on the booking page (super admin edits) ----
+  // Saved edits are loaded for everyone signed in, so renamed spaces show
+  // their new names in every list and filter here too.
+  const [spaceRows, setSpaceRows] = useState([]);
+  const [spacesMissingTable, setSpacesMissingTable] = useState(false);
+  const [editingSpace, setEditingSpace] = useState(null); // form values for the space being edited
+  const [spaceSaving, setSpaceSaving] = useState(false);
+  const [spaceError, setSpaceError] = useState('');
+
+  function fetchSpaces() {
+    return fetch('/api/admin/spaces')
+      .then(r => r.json())
+      .then(body => {
+        const rows = body.spaces || [];
+        applySpaceNames(Object.fromEntries(rows.filter(r => r.name).map(r => [r.id, r.name])));
+        setSpaceRows(rows);
+        setSpacesMissingTable(Boolean(body.missingTable));
+      })
+      .catch(() => {});
+  }
+  useEffect(() => { if (currentUser) fetchSpaces(); }, [currentUser]);
+
+  const spaceCards = useMemo(() => mergeSpaceDetails(spaceRows), [spaceRows]);
+
+  function startEditSpace(card) {
+    setSpaceError('');
+    setEditingSpace({
+      id: card.id, name: card.name, code: card.code, type: card.type,
+      capacity: String(card.capacity), price_per_hour: String(card.price), description: card.desc,
+    });
+  }
+
+  async function saveSpace(e) {
+    e.preventDefault();
+    setSpaceSaving(true);
+    setSpaceError('');
+    const res = await fetch('/api/admin/spaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingSpace),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSpaceSaving(false);
+    if (!res.ok) { setSpaceError(body.error || 'Could not save.'); return; }
+    setEditingSpace(null);
+    fetchSpaces();
+  }
+
+  async function resetSpace(card) {
+    const original = SPACE_CARDS.find(c => c.id === card.id);
+    if (!window.confirm(`Put ${card.name} back to its original details ("${original.name}", ${original.type}, seats ${original.capacity})?`)) return;
+    setSpaceSaving(true);
+    const res = await fetch('/api/admin/spaces', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: card.id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSpaceSaving(false);
+    if (!res.ok) { alert(body.error || 'Could not reset.'); return; }
+    setEditingSpace(null);
+    fetchSpaces();
+  }
+
   function fetchStaff() {
     setStaffLoading(true);
     fetch('/api/admin/staff')
@@ -1456,6 +1521,9 @@ export default function AdminDashboard() {
           )}
           {canManage && (
             <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
+          )}
+          {canManageStaff && (
+            <button className={view === 'spaces' ? 'active' : ''} onClick={() => setView('spaces')}>Spaces</button>
           )}
           {canManageStaff && (
             <button className={view === 'staff' ? 'active' : ''} onClick={() => setView('staff')}>
@@ -2147,6 +2215,99 @@ export default function AdminDashboard() {
                 {filteredActivity.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No activity recorded yet.</p>}
               </div>
             )}
+          </div>
+        )}
+
+        {view === 'spaces' && canManageStaff && (
+          <div className="panel">
+            <h3>Spaces</h3>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -6 }}>
+              What students see for each space on the booking page. A new name also shows here in the dashboard, in emails and in WhatsApp alerts. Past bookings and classes stay attached to the space.
+            </p>
+            {spacesMissingTable && (
+              <div className="inline-error">The database is missing the space details table. Run migration-space-details.sql in Supabase first.</div>
+            )}
+            <div className="sched-list">
+              {spaceCards.map(card => {
+                const row = spaceRows.find(r => r.id === card.id);
+                const isEditing = editingSpace && editingSpace.id === card.id;
+                if (isEditing) {
+                  const f = editingSpace;
+                  const set = (k, v) => setEditingSpace({ ...f, [k]: v });
+                  return (
+                    <form className="booking-row space-edit" key={card.id} onSubmit={saveSpace}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {spaceError && <div className="inline-error">{spaceError}</div>}
+                        <div className="field-row">
+                          <div className="field">
+                            <label htmlFor="sp-name">Name</label>
+                            <input id="sp-name" type="text" maxLength={60} value={f.name} onChange={e => set('name', e.target.value)} />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="sp-code">Badge (up to 5 characters)</label>
+                            <input id="sp-code" type="text" maxLength={5} value={f.code} onChange={e => set('code', e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="field-row">
+                          <div className="field">
+                            <label htmlFor="sp-type">Type</label>
+                            <input id="sp-type" type="text" maxLength={80} value={f.type} onChange={e => set('type', e.target.value)} />
+                          </div>
+                          <div className="field-row" style={{ gap: '0.8rem' }}>
+                            <div className="field">
+                              <label htmlFor="sp-cap">{card.partitioned ? 'Seats (whole hall)' : 'Seats'}</label>
+                              <input id="sp-cap" type="number" min={1} max={1000} value={f.capacity} onChange={e => set('capacity', e.target.value)} />
+                            </div>
+                            <div className="field">
+                              <label htmlFor="sp-price">Price per hour (₹)</label>
+                              <input id="sp-price" type="number" min={0} value={f.price_per_hour} onChange={e => set('price_per_hour', e.target.value)} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="field">
+                          <label htmlFor="sp-desc">Description</label>
+                          <textarea id="sp-desc" maxLength={400} value={f.description} onChange={e => set('description', e.target.value)} />
+                        </div>
+                        {card.partitioned && (
+                          <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -4 }}>
+                            Each partition shows a quarter of the whole-hall seats. A new name also renames the partitions (e.g. &ldquo;{f.name || 'AAPA Hall'} &ndash; Partition 1&rdquo;).
+                          </p>
+                        )}
+                        {Number(f.price_per_hour) === 0 && (
+                          <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -4 }}>Price 0 means not set: requests show no cost and you confirm it with the student.</p>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button type="submit" className="cta" disabled={spaceSaving}>{spaceSaving ? 'Saving\u2026' : 'Save'}</button>
+                          <button type="button" className="cta ghost" disabled={spaceSaving} onClick={() => setEditingSpace(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    </form>
+                  );
+                }
+                return (
+                  <div className="booking-row" key={card.id}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, minWidth: 0 }}>
+                      <span className="code">{card.code}</span>
+                      <div className="meta">
+                        <b>{card.name}</b>
+                        {row && <span className="status-pill status-confirmed" style={{ marginLeft: 8 }}>Edited</span>}
+                        <br />
+                        {card.type} &middot; {card.partitioned ? `seats ${Math.round(card.capacity / 4)} per partition, ${card.capacity} whole hall` : `seats ${card.capacity}`} &middot; {card.price ? `\u20b9${card.price}/hr` : 'price not set'}
+                        <br />
+                        <span style={{ fontSize: 12 }}>{card.desc}</span>
+                        {row && row.updated_by && (
+                          <><br /><span style={{ fontSize: 11 }}>Changed by {row.updated_by} on {new Date(row.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span></>
+                        )}
+                      </div>
+                    </div>
+                    <div className="request-actions">
+                      <button className="cta ghost" disabled={spacesMissingTable} onClick={() => startEditSpace(card)}>Edit</button>
+                      {row && <button className="cta ghost" disabled={spaceSaving} onClick={() => resetSpace(card)}>Reset</button>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
