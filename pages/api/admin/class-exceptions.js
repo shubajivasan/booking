@@ -1,7 +1,7 @@
 import { getAdminUser } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
-import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, weekdayOfDateKey } from '../../../lib/schedule';
+import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, weekdayOfDateKey, overlappingSpaces } from '../../../lib/schedule';
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
 
 // One-off changes to a single session of a regular class.
@@ -38,7 +38,7 @@ async function findConflicts({ blockId, roomId, date, start, end }) {
 
   const { data: bookings } = await supabaseAdmin
     .from('bookings').select('hour, minute, student_name')
-    .eq('room_id', roomId).eq('date', date).in('status', ['pending', 'confirmed']);
+    .in('room_id', overlappingSpaces(roomId)).eq('date', date).in('status', ['pending', 'confirmed']);
   const clashingBookings = (bookings || []).filter(b => {
     const bs = b.hour * 60 + (b.minute || 0);
     return bs < e && bs + 30 > s;
