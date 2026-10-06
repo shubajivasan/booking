@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
   toDateKey, startOfWeek, addDays, roomName, blockAppliesOnDate, classesOnDate, weekdayOfDateKey, ROOM_GROUPS,
+  spacesOverlap, hallParts,
 } from '../lib/schedule';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
@@ -140,6 +141,14 @@ function MultiSelectFilter({ allLabel, noun, options, selected, onChange }) {
 }
 
 // True when two lists of room ids contain exactly the same rooms.
+// Room filter match. For AAPA Hall, ticking a partition (or the whole hall)
+// also shows combinations that use it.
+function roomFilterMatch(filterRooms, roomId) {
+  if (filterRooms.length === 0) return true;
+  if (filterRooms.includes(roomId)) return true;
+  return Boolean(hallParts(roomId)) && filterRooms.some(f => hallParts(f) && spacesOverlap(f, roomId));
+}
+
 function sameRoomSet(a, b) {
   return a.length === b.length && b.every(id => a.includes(id));
 }
@@ -157,7 +166,8 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
 
   const groups = new Map();
   active.forEach(b => {
-    const key = `${b.room_id}|${b.day_of_week}`;
+    // All AAPA Hall partitions/combinations are compared together.
+    const key = `${hallParts(b.room_id) ? 'AAPA' : b.room_id}|${b.day_of_week}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(b);
   });
@@ -184,7 +194,7 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
       for (let j = i + 1; j < sorted.length; j++) {
         const a = sorted[i];
         const b = sorted[j];
-        if (!sameClass(a, b) || !dateRangesOverlap(a, b)) continue;
+        if (a.room_id !== b.room_id || !sameClass(a, b) || !dateRangesOverlap(a, b)) continue;
         duplicatePairs.add(`${a.id}|${b.id}`);
         classClashes.push({
           key: `dup|${a.id}|${b.id}`, kind: 'duplicate', room_id: roomId, day, spaces,
@@ -204,6 +214,7 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
           const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
           if (bS >= aE) break; // sorted by start, nothing later can overlap a
           if (duplicatePairs.has(`${a.id}|${b.id}`)) continue;
+          if (!spacesOverlap(a.room_id, b.room_id)) continue; // e.g. AAPA partitions 1 and 3
           if (!rangesOverlap(aS, aE, bS, bE) || !dateRangesOverlap(a, b)) continue;
           classClashes.push({
             key: `${a.id}|${b.id}`, kind: 'overlap', room_id: roomId, day, spaces,
@@ -256,7 +267,7 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
     if (entry.date < todayKey) return;
     // Sessions that actually happen that date (one-off moves applied).
     classesOnDate(active, exceptions, entry.date).forEach(b => {
-      if (b.room_id !== entry.room_id) return;
+      if (!spacesOverlap(b.room_id, entry.room_id)) return;
       const bS = timeToMinutes(b.start_time), bE = timeToMinutes(b.end_time);
       if (!rangesOverlap(entry.startMinutes, entry.endMinutes, bS, bE)) return;
       bookingClashes.push({ key: `${entry.key}|${b.id}`, entry, block: b });
@@ -274,7 +285,7 @@ function findScheduleClashes(blocks, bookingEntries, { includeNonPhysical, today
       if (!moved) return;
       if (!includeNonPhysical && NON_PHYSICAL_ROOMS.includes(moved.room_id)) return;
       const mS = timeToMinutes(moved.start_time), mE = timeToMinutes(moved.end_time);
-      const others = sessions.filter(x => x !== moved && x.room_id === moved.room_id
+      const others = sessions.filter(x => x !== moved && spacesOverlap(x.room_id, moved.room_id)
         && rangesOverlap(mS, mE, timeToMinutes(x.start_time), timeToMinutes(x.end_time)));
       const spaces = (ROOMS.find(r => r.id === moved.room_id)?.spaces) || 1;
       if (others.length + 1 <= spaces) return;
@@ -686,7 +697,7 @@ export default function AdminDashboard() {
   const filteredAllBookings = useMemo(() => {
     const q = allBookingsSearch.trim().toLowerCase();
     return allBookings
-      .filter(bk => filterRooms.length === 0 || filterRooms.includes(bk.room_id))
+      .filter(bk => roomFilterMatch(filterRooms, bk.room_id))
       .filter(bk => {
         if (!q) return true;
         return (bk.student_name || '').toLowerCase().includes(q)
@@ -712,7 +723,7 @@ export default function AdminDashboard() {
 
   const [staffList, setStaffList] = useState([]);
 
-  // ---- Booking requests (Room 9, Room 10, Basement Hall — see APPROVAL_ROOMS) ----
+  // ---- Booking requests (Room 9, Room 10, Studio D, AAPA Hall — see requiresApproval) ----
   const [requests, setRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestActionKey, setRequestActionKey] = useState(null); // ids.join of the request being approved/rejected
@@ -980,7 +991,7 @@ export default function AdminDashboard() {
 
   // The room filter at the top of the dashboard also narrows the clash list.
   const visibleClashes = useMemo(() => {
-    const keep = id => filterRooms.length === 0 || filterRooms.includes(id);
+    const keep = id => roomFilterMatch(filterRooms, id);
     return {
       classClashes: scheduleClashes.classClashes.filter(c => keep(c.room_id)),
       bookingClashes: scheduleClashes.bookingClashes.filter(c => keep(c.entry.room_id)),
@@ -1130,7 +1141,7 @@ export default function AdminDashboard() {
 
   function passesFilters(entry) {
     if (filterType !== 'all' && entry.type !== filterType) return false;
-    if (filterRooms.length > 0 && !filterRooms.includes(entry.room_id)) return false;
+    if (!roomFilterMatch(filterRooms, entry.room_id)) return false;
     if (entry.type === 'class') {
       if (filterTeachers.length > 0 && !filterTeachers.includes(entry.teacher)) return false;
       if (filterCourses.length > 0 && !filterCourses.includes(entry.course)) return false;
@@ -1806,7 +1817,7 @@ export default function AdminDashboard() {
               </button>
             </div>
             <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
-              Requests for Room No 9, Room No 10 and Basement Hall wait here until approved. A pending request holds its slot so nobody else can request the same time, but it doesn&rsquo;t appear on the schedule views until it&rsquo;s approved. Rejecting frees the slot again. The student is emailed either way.
+              Requests for Room No 9, Room No 10, Studio D and AAPA Hall wait here until approved. A pending request holds its slot so nobody else can request the same time, but it doesn&rsquo;t appear on the schedule views until it&rsquo;s approved. Rejecting frees the slot again. The student is emailed either way.
             </p>
             {requestsLoading && requests.length === 0 ? (
               <p style={{ color: 'var(--ink-soft)' }}>Loading&hellip;</p>
@@ -1918,7 +1929,7 @@ export default function AdminDashboard() {
                     'Which rooms are free tomorrow 5pm to 7pm?',
                     'Is Ansh free on Friday between 4 and 6pm?',
                     'Which teachers match \u201cShra\u201d?',
-                    'What is on in Basement Hall this Sunday?',
+                    'What is on in Studio D this Sunday?',
                   ].map(q => (
                     <button type="button" key={q} className="chat-example" onClick={() => sendChat(q)}>{q}</button>
                   ))}
