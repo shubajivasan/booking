@@ -236,6 +236,7 @@ export default function BookingApp() {
         setSubmitError(body.error || 'One or more of those times were just booked by someone else. Please pick different slots.');
         const freshRes = await fetch(`/api/check-availability?roomId=${encodeURIComponent(bookingRoomId)}&date=${encodeURIComponent(dateKey)}`).then(r => r.json());
         setBookedSlots(freshRes.bookedSlots || []);
+        setClassSlots(freshRes.classSlots || {});
         setSelectedSlots([]);
         setView('room');
       } else {
