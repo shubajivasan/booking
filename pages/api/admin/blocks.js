@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, timeToMinutes, CLASS_TYPES } from '../../../lib/schedule';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
+import { bookingsOverlappingClass, listForMessage } from '../../../lib/classConflicts';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -63,6 +64,19 @@ export default async function handler(req, res) {
 
     const label = [batch, teacher].filter(Boolean).join(' — ') || course || 'Class';
 
+    // A class mustn't land on top of upcoming bookings without the admin
+    // knowing: list them and only save if confirmed (force).
+    if (!req.body.force) {
+      const ignoreIds = Array.isArray(req.body.ignore_booking_ids) ? req.body.ignore_booking_ids : [];
+      const clash = await bookingsOverlappingClass({ room_id, days: dayList, start_time, end_time, start_date, end_date }, { ignoreIds });
+      if (clash.length) {
+        return res.status(409).json({
+          code: 'booking_conflict',
+          error: `${roomName(room_id)}: this class would overlap ${clash.length === 1 ? 'an upcoming booking' : `${clash.length} upcoming bookings`} — ${listForMessage(clash)}.`,
+        });
+      }
+    }
+
     const rows = dayList.map(day_of_week => ({
       room_id,
       day_of_week,
@@ -116,6 +130,24 @@ export default async function handler(req, res) {
     }
 
     const label = [batch, teacher].filter(Boolean).join(' — ') || course || 'Class';
+
+    // Only when the room, day, time or dates change (editing just the name or
+    // teacher shouldn't warn about bookings that were already there).
+    const { data: before } = await supabaseAdmin.from('recurring_blocks').select('*').eq('id', id).maybeSingle();
+    const timingChanged = !before
+      || before.room_id !== room_id || before.day_of_week !== day_of_week
+      || String(before.start_time).slice(0, 5) !== String(start_time).slice(0, 5)
+      || String(before.end_time).slice(0, 5) !== String(end_time).slice(0, 5)
+      || (before.start_date || null) !== (start_date || null) || (before.end_date || null) !== (end_date || null);
+    if (!req.body.force && timingChanged) {
+      const clash = await bookingsOverlappingClass({ id, room_id, day_of_week, start_time, end_time, start_date, end_date });
+      if (clash.length) {
+        return res.status(409).json({
+          code: 'booking_conflict',
+          error: `${roomName(room_id)}: with these changes the class would overlap ${clash.length === 1 ? 'an upcoming booking' : `${clash.length} upcoming bookings`} — ${listForMessage(clash)}.`,
+        });
+      }
+    }
 
     const { data, error } = await supabaseAdmin
       .from('recurring_blocks')
