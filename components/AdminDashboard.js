@@ -597,26 +597,41 @@ export default function AdminDashboard() {
       groups[key].days.push(day);
     }
 
-    const results = await Promise.all(
-      Object.values(groups).map(g =>
-        fetch('/api/admin/blocks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            room_id: addForm.room_id,
-            days: g.days,
-            start_time: g.start + ':00',
-            end_time: g.end + ':00',
-            batch: addForm.batch,
-            teacher: addForm.teacher,
-            course: addForm.course,
-            class_type: addForm.class_type,
-            start_date: addForm.start_date || null,
-            end_date: addForm.ongoing ? null : addForm.end_date,
-          }),
-        }).then(async res => ({ ok: res.ok, days: g.days, body: await res.json().catch(() => ({})) }))
-      )
-    );
+    const postGroup = (g, force = false) =>
+      fetch('/api/admin/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          force,
+          // Turning a booking into a class: that booking itself isn't a clash.
+          ignore_booking_ids: convertingBooking ? convertingBooking.ids : [],
+          room_id: addForm.room_id,
+          days: g.days,
+          start_time: g.start + ':00',
+          end_time: g.end + ':00',
+          batch: addForm.batch,
+          teacher: addForm.teacher,
+          course: addForm.course,
+          class_type: addForm.class_type,
+          start_date: addForm.start_date || null,
+          end_date: addForm.ongoing ? null : addForm.end_date,
+        }),
+      }).then(async res => ({ ok: res.ok, status: res.status, group: g, days: g.days, body: await res.json().catch(() => ({})) }));
+
+    let results = await Promise.all(Object.values(groups).map(g => postGroup(g)));
+
+    // Days that would overlap upcoming bookings weren't saved yet: show the
+    // bookings and save those days only if confirmed.
+    const clashing = results.filter(r => r.status === 409 && r.body.code === 'booking_conflict');
+    if (clashing.length) {
+      const msg = clashing.map(r => `${r.days.join(', ')} \u2014 ${r.body.error}`).join('\n\n');
+      if (window.confirm(`\u26a0 Overlaps with bookings\n\n${msg}\n\nAdd the class anyway? (The bookings stay; you'll need to move one of them.)`)) {
+        const retried = await Promise.all(clashing.map(r => postGroup(r.group, true)));
+        results = results.filter(r => !clashing.includes(r)).concat(retried);
+      } else {
+        results = results.map(r => (clashing.includes(r) ? { ...r, body: { error: 'not added (overlaps a booking)' } } : r));
+      }
+    }
 
     setSaving(false);
     const failed = results.filter(r => !r.ok);
@@ -1135,8 +1150,8 @@ export default function AdminDashboard() {
     setBlockEditError('');
   }
 
-  async function handleSaveEditBlock(ev) {
-    ev.preventDefault();
+  async function handleSaveEditBlock(ev, force = false) {
+    if (ev) ev.preventDefault();
     setBlockEditError('');
     if (!blockEditForm.room_id) { setBlockEditError('Pick a room'); return; }
     if (!blockEditForm.day_of_week) { setBlockEditError('Pick a day'); return; }
@@ -1148,6 +1163,7 @@ export default function AdminDashboard() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        force,
         id: editingBlock.id,
         room_id: blockEditForm.room_id,
         day_of_week: blockEditForm.day_of_week,
@@ -1163,7 +1179,14 @@ export default function AdminDashboard() {
     });
     const body = await res.json();
     setSavingBlockEdit(false);
-    if (!res.ok) { setBlockEditError(body.error || 'Could not save this change.'); return; }
+    if (!res.ok) {
+      if (res.status === 409 && body.code === 'booking_conflict'
+        && window.confirm(`\u26a0 ${body.error}\n\nSave the class anyway? (The bookings stay; you'll need to move one of them.)`)) {
+        return handleSaveEditBlock(null, true);
+      }
+      setBlockEditError(body.error || 'Could not save this change.');
+      return;
+    }
     setEditingBlock(null);
     fetchBlocks();
   }
@@ -1177,14 +1200,15 @@ export default function AdminDashboard() {
     setEditError('');
   }
 
-  async function handleSaveEdit(e) {
-    e.preventDefault();
+  async function handleSaveEdit(e, force = false) {
+    if (e) e.preventDefault();
     setEditError('');
     setSavingEdit(true);
     const res = await fetch('/api/admin/bookings', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        force,
         ids: editingBooking.ids,
         room_id: editForm.room_id,
         date: editForm.date,
@@ -1194,7 +1218,14 @@ export default function AdminDashboard() {
     });
     const body = await res.json();
     setSavingEdit(false);
-    if (!res.ok) { setEditError(body.error || 'Could not save this change.'); return; }
+    if (!res.ok) {
+      if (res.status === 409 && body.code === 'class_conflict'
+        && window.confirm(`\u26a0 ${body.error}\n\nMove the booking there anyway?`)) {
+        return handleSaveEdit(null, true);
+      }
+      setEditError(body.error || 'Could not save this change.');
+      return;
+    }
     setEditingBooking(null);
     fetchBookings();
     refreshAllBookings();
@@ -1369,15 +1400,24 @@ export default function AdminDashboard() {
     setBulkSaving(true);
     setBulkError('');
 
-    const results = await Promise.all(
-      selectedBookingIds.map(id =>
-        fetch('/api/admin/bookings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, date: bulkNewDate }),
-        }).then(async res => ({ id, ok: res.ok, body: await res.json().catch(() => ({})) }))
-      )
-    );
+    const move = (id, force = false) =>
+      fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, date: bulkNewDate, force }),
+      }).then(async res => ({ id, ok: res.ok, status: res.status, body: await res.json().catch(() => ({})) }));
+
+    let results = await Promise.all(selectedBookingIds.map(id => move(id)));
+
+    // Slots that would land on a regular class weren't moved: ask first.
+    const onClass = results.filter(r => r.status === 409 && r.body.code === 'class_conflict');
+    if (onClass.length) {
+      const lines = [...new Set(onClass.map(r => r.body.error))].slice(0, 8).join('\n');
+      if (window.confirm(`\u26a0 ${onClass.length} half-hour slot${onClass.length === 1 ? '' : 's'} would land on a regular class:\n\n${lines}\n\nMove them anyway?`)) {
+        const retried = await Promise.all(onClass.map(r => move(r.id, true)));
+        results = results.filter(r => !onClass.includes(r)).concat(retried);
+      }
+    }
 
     setBulkSaving(false);
     const failed = results.filter(r => !r.ok);
