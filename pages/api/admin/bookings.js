@@ -4,6 +4,7 @@ import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, BOOKABLE_ROOMS } from '../../../lib/schedule';
 import { slotsLabel } from '../../../lib/bookingEmails';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
+import { classesOverlapping, classesOverlappingSlots, listForMessage } from '../../../lib/classConflicts';
 
 // The dashboard shows back-to-back 30-min slot rows of the same booking as
 // ONE entry, so Remove and Reschedule act on all of that entry's rows
@@ -97,6 +98,18 @@ export default async function handler(req, res) {
 
     const { data: existing } = await supabaseAdmin.from('bookings').select('*').in('id', ids);
 
+    // A booking mustn't sit on top of a regular class: warn, and only save if
+    // the admin confirms (force).
+    if (!req.body.force) {
+      const clash = await classesOverlapping(room_id, date, start, end);
+      if (clash.length) {
+        return res.status(409).json({
+          code: 'class_conflict',
+          error: `${roomName(room_id)} has a regular class at that time on ${date}: ${listForMessage(clash)}.`,
+        });
+      }
+    }
+
     const { data, error } = await supabaseAdmin.rpc('reschedule_booking_group', {
       p_ids: ids, p_room: room_id, p_date: date, p_slots: slots,
     });
@@ -137,6 +150,21 @@ export default async function handler(req, res) {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Nothing to update — provide room_id, date, hour and/or minute.' });
+    }
+
+    // Same class check for single-slot moves (used by "Move selected to
+    // another date").
+    if (existing && !req.body.force) {
+      const room = updates.room_id || existing.room_id;
+      const day = updates.date || existing.date;
+      const startMin = (updates.hour ?? existing.hour) * 60 + (updates.minute ?? existing.minute ?? 0);
+      const clash = await classesOverlappingSlots(room, String(day), [startMin]);
+      if (clash.length) {
+        return res.status(409).json({
+          code: 'class_conflict',
+          error: `${existing.student_name}, ${minutesToLabel(startMin)}: ${roomName(room)} has a regular class then on ${day} (${listForMessage(clash)}).`,
+        });
+      }
     }
 
     const { data, error } = await supabaseAdmin
