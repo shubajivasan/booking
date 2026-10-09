@@ -4,6 +4,7 @@ import { sendWhatsAppNotification } from '../../lib/sendWhatsAppNotification';
 import { roomName, requiresApproval } from '../../lib/schedule';
 import { slotsLabel, adminEmail, studentConfirmedEmail, studentRequestReceivedEmail } from '../../lib/bookingEmails';
 import { loadSpaceDetails } from '../../lib/spaceDetails';
+import { classesOverlappingSlots } from '../../lib/classConflicts';
 
 // Resolves after `ms` milliseconds — used to cap how long the booking
 // response waits on notifications.
@@ -31,6 +32,20 @@ export default async function handler(req, res) {
   // price can be 0 for spaces whose price isn't set yet (e.g. AAPA Hall).
   if (!roomId || !date || !Array.isArray(slots) || slots.length === 0 || !name || !email || price == null) {
     return res.status(400).json({ error: 'Missing required booking details' });
+  }
+
+  // The booking page greys out class times, but a page left open from before
+  // a class was added (or a direct request) could still send them. Bookings
+  // can't sit on top of a regular class, so check on the server too.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !slots.every(s => Number.isInteger(s) && s % 30 === 0)) {
+    return res.status(400).json({ error: 'Invalid date or time.' });
+  }
+  let classClash = [];
+  try { classClash = await classesOverlappingSlots(roomId, date, slots); } catch (err) { console.error('Class check failed:', err); }
+  if (classClash.length) {
+    return res.status(409).json({
+      error: 'Part of that time is taken by a regular class. The times have been refreshed — please pick a free slot.',
+    });
   }
 
   const needsApproval = requiresApproval(roomId);
