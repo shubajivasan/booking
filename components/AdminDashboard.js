@@ -864,7 +864,7 @@ export default function AdminDashboard() {
       .catch(() => setActivityLoading(false));
   }
 
-  useEffect(() => { if (view === 'activity') fetchActivity(); }, [view]);
+  useEffect(() => { if (view === 'reports' && reportType === 'activity') fetchActivity(); }, [view, reportType]);
 
   const filteredActivity = useMemo(() => {
     const q = activitySearch.trim().toLowerCase();
@@ -1571,9 +1571,6 @@ export default function AdminDashboard() {
           {canManage && (
             <button className={view === 'reports' ? 'active' : ''} onClick={() => setView('reports')}>Reports</button>
           )}
-          {canManage && (
-            <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
-          )}
           {canManageStaff && (
             <button className={view === 'spaces' ? 'active' : ''} onClick={() => setView('spaces')}>Spaces</button>
           )}
@@ -2237,50 +2234,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {view === 'activity' && (
-          <div className="panel">
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>Activity log</h3>
-              <input
-                type="text"
-                placeholder="Search by person or what changed…"
-                value={activitySearch}
-                onChange={e => setActivitySearch(e.target.value)}
-                style={{
-                  marginLeft: 'auto', fontFamily: "'Inter',sans-serif", fontSize: 13,
-                  padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line)',
-                  background: 'var(--paper)', color: 'var(--ink)', minWidth: 220,
-                }}
-              />
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
-              Showing the most recent 500 changes made from this dashboard. Bookings students make themselves aren't logged here — only staff actions are: adding/editing/removing classes, rescheduling/cancelling bookings, and adding/removing staff accounts.
-            </p>
-            {activityLoading ? (
-              <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
-            ) : (
-              <div className="sched-list">
-                {filteredActivity.map(e => (
-                  <div className="booking-row" key={e.id}>
-                    <div className="meta">
-                      <b>{e.user_name}</b>
-                      <span className="status-pill" style={{ marginLeft: 8 }}>
-                        {e.action === 'create' ? 'Added' : e.action === 'update' ? 'Edited' : 'Removed'}
-                      </span>
-                      <br />
-                      {e.summary}
-                      <br />
-                      <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-                        {new Date(e.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                {filteredActivity.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No activity recorded yet.</p>}
-              </div>
-            )}
-          </div>
-        )}
 
         {view === 'reports' && canManage && (
           <div className="panel">
@@ -2290,10 +2243,54 @@ export default function AdminDashboard() {
                 <span>Report</span>
                 <select value={reportType} onChange={e => setReportType(e.target.value)}>
                   <option value="occupancy">Occupancy % of spaces</option>
+                  <option value="activity">Activity log</option>
                 </select>
               </label>
             </div>
             {reportType === 'occupancy' && <OccupancyReport blocks={allBlocks} exceptions={allExceptions} />}
+            {reportType === 'activity' && (
+              <div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    placeholder="Search by person or what changed…"
+                    value={activitySearch}
+                    onChange={e => setActivitySearch(e.target.value)}
+                    style={{
+                      marginLeft: 'auto', fontFamily: "'Inter',sans-serif", fontSize: 13,
+                      padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line)',
+                      background: 'var(--paper)', color: 'var(--ink)', minWidth: 220,
+                    }}
+                  />
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 0 }}>
+                  Showing the most recent 500 changes made from this dashboard. Bookings students make themselves aren't logged here — only staff actions are: adding/editing/removing classes, rescheduling/cancelling bookings, and adding/removing staff accounts.
+                </p>
+                {activityLoading ? (
+                  <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+                ) : (
+                  <div className="sched-list">
+                    {filteredActivity.map(e => (
+                      <div className="booking-row" key={e.id}>
+                        <div className="meta">
+                          <b>{e.user_name}</b>
+                          <span className="status-pill" style={{ marginLeft: 8 }}>
+                            {e.action === 'create' ? 'Added' : e.action === 'update' ? 'Edited' : 'Removed'}
+                          </span>
+                          <br />
+                          {e.summary}
+                          <br />
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                            {new Date(e.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {filteredActivity.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No activity recorded yet.</p>}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
