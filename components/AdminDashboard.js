@@ -6,6 +6,7 @@ import {
   spacesOverlap, hallParts, applySpaceNames, CLASS_TYPES, defaultClassType,
 } from '../lib/schedule';
 import { SPACE_CARDS, mergeSpaceDetails } from '../lib/spaces';
+import OccupancyReport from './OccupancyReport';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
 // slots of the same booking (same room, date, student, email and purpose)
@@ -489,6 +490,7 @@ export default function AdminDashboard() {
   // filter client-side, rather than re-querying on every view/date change.
   // One-off changes to single sessions of regular classes (moved/cancelled dates).
   const [allExceptions, setAllExceptions] = useState([]);
+  const [reportType, setReportType] = useState('occupancy'); // Reports tab
   function fetchExceptions() {
     return fetch('/api/admin/class-exceptions')
       .then(r => r.json())
@@ -1567,6 +1569,9 @@ export default function AdminDashboard() {
             </button>
           )}
           {canManage && (
+            <button className={view === 'reports' ? 'active' : ''} onClick={() => setView('reports')}>Reports</button>
+          )}
+          {canManage && (
             <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>Activity log</button>
           )}
           {canManageStaff && (
@@ -1581,6 +1586,7 @@ export default function AdminDashboard() {
       </header>
 
       <main>
+        {view !== 'reports' && (
         <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
             <summary className={filterRooms.length ? 'has-selection' : ''}>
@@ -1639,8 +1645,9 @@ export default function AdminDashboard() {
             {showAddForm ? 'Cancel' : '+ Add regular class'}
           </button>
         </div>
+        )}
 
-        {showAddForm && (
+        {showAddForm && view !== 'reports' && (
           <form className="panel" onSubmit={handleAddClass}>
             <h3>{convertingBooking ? 'Convert booking to regular class' : 'New regular class'}</h3>
             {convertingBooking && (
@@ -2272,6 +2279,21 @@ export default function AdminDashboard() {
                 {filteredActivity.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No activity recorded yet.</p>}
               </div>
             )}
+          </div>
+        )}
+
+        {view === 'reports' && canManage && (
+          <div className="panel">
+            <div className="occ-report-head">
+              <h3 style={{ margin: 0 }}>Reports</h3>
+              <label className="occ-report-pick">
+                <span>Report</span>
+                <select value={reportType} onChange={e => setReportType(e.target.value)}>
+                  <option value="occupancy">Occupancy % of spaces</option>
+                </select>
+              </label>
+            </div>
+            {reportType === 'occupancy' && <OccupancyReport blocks={allBlocks} exceptions={allExceptions} />}
           </div>
         )}
 
