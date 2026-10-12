@@ -7,6 +7,7 @@ import {
 } from '../lib/schedule';
 import { SPACE_CARDS, mergeSpaceDetails } from '../lib/spaces';
 import OccupancyReport from './OccupancyReport';
+import TeacherAllocationReport from './TeacherAllocationReport';
 
 // Each 30-minute slot is stored as its own row. For display, back-to-back
 // slots of the same booking (same room, date, student, email and purpose)
@@ -2243,11 +2244,13 @@ export default function AdminDashboard() {
                 <span>Report</span>
                 <select value={reportType} onChange={e => setReportType(e.target.value)}>
                   <option value="occupancy">Occupancy % of spaces</option>
+                  <option value="teachers">Teacher allocation</option>
                   <option value="activity">Activity log</option>
                 </select>
               </label>
             </div>
             {reportType === 'occupancy' && <OccupancyReport blocks={allBlocks} exceptions={allExceptions} />}
+            {reportType === 'teachers' && <TeacherAllocationReport blocks={allBlocks} exceptions={allExceptions} />}
             {reportType === 'activity' && (
               <div>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
