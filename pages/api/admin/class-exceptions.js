@@ -4,6 +4,7 @@ import { logActivity } from '../../../lib/activityLog';
 import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, weekdayOfDateKey, overlappingSpaces } from '../../../lib/schedule';
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
+import { queueStaffChange } from '../../../lib/changeRequests';
 
 // One-off changes to a single session of a regular class.
 //   GET                       → every one-off change (small table)
@@ -72,9 +73,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ exceptions: data });
   }
 
-  if (user.role === 'staff') {
-    return res.status(403).json({ error: 'Only an admin can change a single session.' });
-  }
+  // Staff: "This date only" changes become a request an admin approves.
+  if (user.role === 'staff') return queueStaffChange(req, res, user, 'class-exceptions');
 
   if (req.method === 'POST') {
     const { block_id, original_date, status, note, force } = req.body || {};
