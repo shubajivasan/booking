@@ -359,6 +359,7 @@ export default function AdminDashboard() {
 
   const canManage = Boolean(currentUser) && currentUser.role !== 'staff'; // admin or super_admin
   const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
+  const isStaff = Boolean(currentUser) && currentUser.role === 'staff'; // changes go to an admin for approval
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [clashIncludeOnline, setClashIncludeOnline] = useState(false);
@@ -549,6 +550,7 @@ export default function AdminDashboard() {
     });
     const body = await res.json().catch(() => ({}));
     setSessionSaving(false);
+    if (res.status === 202) { setSessionChange(null); queued(body); return; }
     if (res.status === 409 && body.code === 'conflict') {
       if (window.confirm(`${body.error}\n\nMove it there anyway?`)) return saveSessionChange(true);
       return;
@@ -565,8 +567,9 @@ export default function AdminDashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: exception.id }),
     });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 202) { setSessionChange(null); queued(body); return; }
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       alert(body.error || 'Could not undo this change.');
       return;
     }
@@ -683,7 +686,10 @@ export default function AdminDashboard() {
       body: JSON.stringify({ id }),
     });
     setDeletingId(null);
-    if (res.ok) fetchBlocks();
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 202) queued(body);
+    else if (res.ok) fetchBlocks();
+    else alert(body.error || 'Could not remove this class.');
   }
 
   const rangeStart = useMemo(() => {
@@ -919,6 +925,61 @@ export default function AdminDashboard() {
     if (action === 'approve') fetchStaff();
   }
 
+  // ---- Staff change requests (approved or rejected by an admin) ----
+  const [changeReqs, setChangeReqs] = useState({ pending: [], recent: [], mine: [], missingTable: false });
+  const [changeBusyId, setChangeBusyId] = useState(null);
+  const [notice, setNotice] = useState('');
+
+  function fetchChangeRequests() {
+    return fetch('/api/admin/change-requests')
+      .then(r => r.json())
+      .then(body => setChangeReqs({ pending: body.pending || [], recent: body.recent || [], mine: body.mine || [], missingTable: Boolean(body.missingTable) }))
+      .catch(() => {});
+  }
+  useEffect(() => {
+    if (!currentUser) return;
+    fetchChangeRequests();
+    const timer = setInterval(fetchChangeRequests, 120000);
+    return () => clearInterval(timer);
+  }, [currentUser]);
+
+  // A staff change was saved as a request instead of being applied.
+  function queued(body) {
+    setNotice(body.message || 'Sent to an admin for approval.');
+    fetchChangeRequests();
+    setTimeout(() => setNotice(''), 7000);
+  }
+
+  const pendingBlockIds = useMemo(() => new Set(changeReqs.pending.filter(x => x.block_id).map(x => String(x.block_id))), [changeReqs]);
+  const pendingBookingIds = useMemo(() => new Set(changeReqs.pending.flatMap(x => x.booking_ids || []).map(String)), [changeReqs]);
+
+  async function decideChange(cr, action, force = false) {
+    let reason = null;
+    if (action === 'reject') {
+      reason = window.prompt(`Reject this change?\n\n${cr.summary}\n\nReason (optional, emailed to ${cr.requested_by_name}):`, '');
+      if (reason === null) return;
+    } else if (action === 'approve' && !force && !window.confirm(`Approve and apply this change?\n\n${cr.summary}`)) {
+      return;
+    } else if (action === 'withdraw' && !window.confirm(`Withdraw this request?\n\n${cr.summary}`)) {
+      return;
+    }
+    setChangeBusyId(cr.id);
+    const res = await fetch('/api/admin/change-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cr.id, action, reason, force }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setChangeBusyId(null);
+    if (res.status === 409 && ['class_conflict', 'booking_conflict', 'conflict'].includes(body.code)) {
+      if (window.confirm(`\u26a0 ${body.error}\n\nApprove anyway?`)) return decideChange(cr, 'approve', true);
+    } else if (!res.ok) {
+      alert(body.error || 'Could not update this request.');
+    }
+    fetchChangeRequests();
+    if (action === 'approve') { fetchBlocks(); fetchExceptions(); fetchBookings(); refreshAllBookings(); }
+  }
+
   // ---- Spaces: details shown on the booking page (super admin edits) ----
   // Saved edits are loaded for everyone signed in, so renamed spaces show
   // their new names in every list and filter here too.
@@ -1111,7 +1172,10 @@ export default function AdminDashboard() {
   }
 
   async function handleDeleteBooking(entry) {
-    if (!window.confirm(`Cancel this booking (${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)})? This cannot be undone.`)) return;
+    const span = `${minutesToLabel(entry.startMinutes)} \u2013 ${minutesToLabel(entry.endMinutes)}`;
+    if (!window.confirm(isStaff
+      ? `Ask an admin to cancel this booking (${span})? Nothing changes until it\u2019s approved.`
+      : `Cancel this booking (${span})? This cannot be undone.`)) return;
     setDeletingId(entry.id);
     const res = await fetch('/api/admin/bookings', {
       method: 'DELETE',
@@ -1119,11 +1183,10 @@ export default function AdminDashboard() {
       body: JSON.stringify({ ids: entry.ids }),
     });
     setDeletingId(null);
-    if (res.ok) { fetchBookings(); refreshAllBookings(); }
-    else {
-      const body = await res.json().catch(() => ({}));
-      alert(body.error || 'Could not cancel this booking.');
-    }
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 202) queued(body);
+    else if (res.ok) { fetchBookings(); refreshAllBookings(); }
+    else alert(body.error || 'Could not cancel this booking.');
   }
 
   const [editingBooking, setEditingBooking] = useState(null); // the booking row being rescheduled
@@ -1182,6 +1245,7 @@ export default function AdminDashboard() {
     });
     const body = await res.json();
     setSavingBlockEdit(false);
+    if (res.status === 202) { setEditingBlock(null); queued(body); return; }
     if (!res.ok) {
       if (res.status === 409 && body.code === 'booking_conflict'
         && window.confirm(`\u26a0 ${body.error}\n\nSave the class anyway? (The bookings stay; you'll need to move one of them.)`)) {
@@ -1221,6 +1285,7 @@ export default function AdminDashboard() {
     });
     const body = await res.json();
     setSavingEdit(false);
+    if (res.status === 202) { setEditingBooking(null); queued(body); return; }
     if (!res.ok) {
       if (res.status === 409 && body.code === 'class_conflict'
         && window.confirm(`\u26a0 ${body.error}\n\nMove the booking there anyway?`)) {
@@ -1466,7 +1531,8 @@ export default function AdminDashboard() {
                 : e.exceptionKind === 'moved-here' ? 'Moved here (this date)'
                   : 'Regular class'}
           </span>
-          {canManage && (
+          {pendingBlockIds.has(String(e.id)) && <span className="sched-tag sched-tag-pending" title="A staff member asked for a change; waiting for an admin">Change requested</span>}
+          {currentUser && (
             <div style={{ display: 'flex', gap: 6 }}>
               {ex ? (
                 <>
@@ -1501,18 +1567,23 @@ export default function AdminDashboard() {
         <span className="sched-room">{roomName(e.room_id)}</span>
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
-        {canManage && (
+        {(e.ids || [e.id]).some(x => pendingBookingIds.has(String(x))) && <span className="sched-tag sched-tag-pending" title="A staff member asked for a change; waiting for an admin">Change requested</span>}
+        {currentUser && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={Boolean(selectedGroups[e.key])}
-              onChange={() => toggleSelectBooking(e)}
-              style={{ marginRight: 4, width: 16, height: 16, accentColor: 'var(--brass-dark)' }}
-              title="Select for bulk reschedule"
-            />
-            <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
-              Convert to class
-            </button>
+            {canManage && (
+              <>
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedGroups[e.key])}
+                  onChange={() => toggleSelectBooking(e)}
+                  style={{ marginRight: 4, width: 16, height: 16, accentColor: 'var(--brass-dark)' }}
+                  title="Select for bulk reschedule"
+                />
+                <button className="cta ghost sched-remove" onClick={() => openConvert(e)}>
+                  Convert to class
+                </button>
+              </>
+            )}
             <button className="cta ghost sched-remove" onClick={() => openEdit(e)}>
               Reschedule
             </button>
@@ -1555,9 +1626,12 @@ export default function AdminDashboard() {
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
           <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
-          {canManage && (
+          {currentUser && (
             <button className={view === 'requests' ? 'active' : ''} onClick={() => setView('requests')}>
-              Requests{requests.length > 0 && <span className="tab-badge">{requests.length}</span>}
+              Requests
+              {(canManage ? requests.length + changeReqs.pending.length : changeReqs.mine.filter(x => x.status === 'pending').length) > 0 && (
+                <span className="tab-badge">{canManage ? requests.length + changeReqs.pending.length : changeReqs.mine.filter(x => x.status === 'pending').length}</span>
+              )}
             </button>
           )}
           <button className={view === 'assistant' ? 'active' : ''} onClick={() => setView('assistant')}>Assistant</button>
@@ -1584,6 +1658,7 @@ export default function AdminDashboard() {
       </header>
 
       <main>
+        {notice && <div className="toast-notice" role="status">{notice}</div>}
         {view !== 'reports' && (
         <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
@@ -1935,6 +2010,69 @@ export default function AdminDashboard() {
               <button className="cta ghost" onClick={exportAllBookings}>Export to Excel</button>
               <button className="cta ghost" onClick={() => window.print()}>Print / Save as PDF</button>
             </div>
+          </div>
+        )}
+
+        {view === 'requests' && currentUser && (
+          <div className="panel">
+            <h3>{canManage ? 'Staff change requests' : 'My change requests'}</h3>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -6 }}>
+              {canManage
+                ? 'Changes staff asked for (This date only, Edit, Remove, Reschedule). Nothing changes until you approve; approving runs the change with the usual clash warnings. The staff member is emailed either way.'
+                : 'Your changes wait here until an admin approves them. You\u2019ll get an email when they decide.'}
+            </p>
+            {changeReqs.missingTable && <div className="inline-error">Change requests aren&rsquo;t set up yet: run migration-change-requests.sql in Supabase.</div>}
+            {(() => {
+              const list = canManage ? changeReqs.pending : changeReqs.mine;
+              if (list.length === 0) return <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>{canManage ? 'No pending change requests.' : 'You haven\u2019t requested any changes yet.'}</p>;
+              return (
+                <div className="sched-list">
+                  {list.map(cr => (
+                    <div className="booking-row" key={cr.id}>
+                      <div className="meta">
+                        <b>{cr.summary}</b>
+                        <span className={`status-pill ${cr.status === 'approved' ? 'status-confirmed' : cr.status === 'pending' ? 'status-pending' : 'status-rejected'}`} style={{ marginLeft: 8 }}>
+                          {cr.status === 'pending' ? 'Awaiting approval' : cr.status === 'approved' ? 'Approved' : cr.status === 'rejected' ? 'Rejected' : cr.status === 'withdrawn' ? 'Withdrawn' : cr.status}
+                        </span>
+                        <br />
+                        <span style={{ fontSize: 12 }}>
+                          {canManage ? `Requested by ${cr.requested_by_name || 'staff'} \u00b7 ` : ''}{new Date(cr.created_at).toLocaleString('en-IN')}
+                          {cr.decided_by_name && cr.status !== 'pending' ? ` \u00b7 ${cr.status} by ${cr.decided_by_name}` : ''}
+                          {cr.decision_note ? ` \u00b7 \u201c${cr.decision_note}\u201d` : ''}
+                        </span>
+                      </div>
+                      <div className="request-actions">
+                        {canManage && cr.status === 'pending' && (
+                          <>
+                            <button className="cta" disabled={changeBusyId === cr.id} onClick={() => decideChange(cr, 'approve')}>{changeBusyId === cr.id ? 'Saving\u2026' : 'Approve'}</button>
+                            <button className="cta ghost" disabled={changeBusyId === cr.id} onClick={() => decideChange(cr, 'reject')}>Reject</button>
+                          </>
+                        )}
+                        {!canManage && cr.status === 'pending' && (
+                          <button className="cta ghost" disabled={changeBusyId === cr.id} onClick={() => decideChange(cr, 'withdraw')}>Withdraw</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {canManage && changeReqs.recent.length > 0 && (
+              <details style={{ marginTop: '1rem' }}>
+                <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--ink-soft)' }}>Recently decided ({changeReqs.recent.length})</summary>
+                <div className="sched-list" style={{ marginTop: 8 }}>
+                  {changeReqs.recent.map(cr => (
+                    <div className="booking-row" key={cr.id} style={{ fontSize: 12 }}>
+                      <div className="meta">
+                        {cr.summary}
+                        <br />
+                        <span>{cr.requested_by_name} \u00b7 {cr.status} by {cr.decided_by_name || '\u2014'}{cr.decided_at ? ` \u00b7 ${new Date(cr.decided_at).toLocaleString('en-IN')}` : ''}{cr.decision_note ? ` \u00b7 \u201c${cr.decision_note}\u201d` : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
 
@@ -2535,7 +2673,7 @@ export default function AdminDashboard() {
                 Was: {roomName(editingBooking.room_id)} &middot; {editingBooking.date} &middot; {minutesToLabel(editingBooking.startMinutes)} &ndash; {minutesToLabel(editingBooking.endMinutes)}
               </p>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button className="cta" type="submit" disabled={savingEdit}>{savingEdit ? 'Saving…' : 'Save new time'}</button>
+                <button className="cta" type="submit" disabled={savingEdit}>{savingEdit ? 'Saving…' : isStaff ? 'Send for approval' : 'Save new time'}</button>
                 <button className="cta ghost" type="button" onClick={() => setEditingBooking(null)}>Cancel</button>
               </div>
             </form>
@@ -2582,7 +2720,7 @@ export default function AdminDashboard() {
                 </button>
               )}
               <button className="cta danger" disabled={!removeConfirmed} onClick={confirmDeleteBlock} style={{ marginLeft: 'auto' }}>
-                Remove every week
+                {isStaff ? 'Request removal (every week)' : 'Remove every week'}
               </button>
             </div>
           </div>
@@ -2652,7 +2790,7 @@ export default function AdminDashboard() {
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button className="cta" onClick={() => saveSessionChange(false)} disabled={sessionSaving}>
-                {sessionSaving ? 'Saving\u2026' : sessionForm.status === 'moved' ? 'Move this session' : 'Cancel this session'}
+                {sessionSaving ? 'Saving\u2026' : isStaff ? 'Send for approval' : sessionForm.status === 'moved' ? 'Move this session' : 'Cancel this session'}
               </button>
               {sessionChange.existing && (
                 <button className="cta ghost" onClick={() => undoSessionChange(sessionChange.existing)} disabled={sessionSaving}>
@@ -2749,7 +2887,7 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10 }}>
-                <button className="cta" type="submit" disabled={savingBlockEdit}>{savingBlockEdit ? 'Saving…' : 'Save changes'}</button>
+                <button className="cta" type="submit" disabled={savingBlockEdit}>{savingBlockEdit ? 'Saving…' : isStaff ? 'Send for approval' : 'Save changes'}</button>
                 <button className="cta ghost" type="button" onClick={() => setEditingBlock(null)}>Cancel</button>
               </div>
             </form>
