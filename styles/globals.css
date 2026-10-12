@@ -1015,3 +1015,27 @@ button.cta.danger:disabled{ opacity:0.4; cursor:not-allowed; }
   .occ-bar-col{ width:auto; min-width:110px; }
   .occ-name{ min-width:120px; }
 }
+
+/* ---------- Reports: Teacher allocation ---------- */
+.occ-controls select, .ta-search{ padding:7px 10px; border-radius:7px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13px; color:var(--ink); }
+.ta-search{ min-width:180px; }
+.ta-row{ cursor:pointer; }
+.ta-row:hover td{ background:rgba(42,120,214,0.06); }
+.ta-caret{ display:inline-block; width:12px; color:var(--ink-soft); }
+.ta-warn{ color:var(--maroon); }
+.ta-wrap{ white-space:normal !important; font-size:12px; color:var(--ink-soft); max-width:240px; }
+.ta-detail > td{ background:var(--paper); padding:10px 14px 14px !important; white-space:normal !important; }
+.ta-summary{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--ink-soft); margin-bottom:10px; }
+.ta-summary b{ color:var(--ink); font-weight:600; }
+.ta-sessions{ width:100%; border-collapse:collapse; font-size:12px; }
+.ta-sessions td{ padding:5px 8px 5px 0; border-bottom:1px dashed var(--line); vertical-align:top; }
+.ta-sessions tr:last-child td{ border-bottom:0; }
+.ta-date{ white-space:nowrap; color:var(--ink); font-weight:500; width:1%; }
+.ta-time{ white-space:nowrap; font-family:'JetBrains Mono',monospace; font-size:11px; width:1%; }
+.ta-muted{ color:var(--ink-soft); }
+@media (max-width:640px){
+  .ta-table .occ-bar-col{ min-width:70px; }
+  .ta-table .occ-name{ min-width:0; white-space:normal; }
+  .ta-sessions td{ white-space:normal; }
+  .ta-sessions .ta-time, .ta-sessions .ta-date{ white-space:nowrap; }
+}
