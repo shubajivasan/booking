@@ -5,6 +5,7 @@ import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, timeToMinutes, CLASS_TYPES } from '../../../lib/schedule';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 import { bookingsOverlappingClass, listForMessage } from '../../../lib/classConflicts';
+import { queueStaffChange } from '../../../lib/changeRequests';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -110,6 +111,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     if (!canEditOrDelete) {
+      // Staff: the edit becomes a request an admin approves.
+      if (user) return queueStaffChange(req, res, user, 'blocks');
       return res.status(403).json({ error: 'Only an admin can edit a regular class.' });
     }
     const { id, room_id, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
@@ -178,6 +181,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'DELETE') {
     if (!canEditOrDelete) {
+      if (user) return queueStaffChange(req, res, user, 'blocks');
       return res.status(403).json({ error: 'Only an admin can remove a regular class.' });
     }
     const { id } = req.body || {};
