@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { toDateKey, startOfWeek, addDays } from '../lib/schedule';
+import { toDateKey } from '../lib/schedule';
+import { rangeFor, periodLabel, PeriodControls } from './ReportPeriod';
 import { computeOccupancy } from '../lib/occupancy';
 
 // Reports → Occupancy % of spaces (9am–9pm), by day, week or month.
@@ -13,24 +14,6 @@ const hours = min => {
   const h = min / 60;
   return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
 };
-
-function rangeFor(period, anchor) {
-  if (period === 'day') return [new Date(anchor)];
-  if (period === 'week') {
-    const s = startOfWeek(anchor);
-    return Array.from({ length: 7 }, (_, i) => addDays(s, i));
-  }
-  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const days = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
-  return Array.from({ length: days }, (_, i) => addDays(first, i));
-}
-
-function periodLabel(period, dates) {
-  const opt = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' };
-  if (period === 'day') return dates[0].toLocaleDateString('en-IN', opt);
-  if (period === 'week') return `${dates[0].toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${dates[6].toLocaleDateString('en-IN', opt)}`;
-  return dates[0].toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-}
 
 // Sequential (one hue, light → dark) for the heatmap.
 const RAMP = [
@@ -96,12 +79,6 @@ export default function OccupancyReport({ blocks, exceptions }) {
     return list;
   }, [report, sortByPct]);
 
-  function shift(dir) {
-    if (period === 'day') setAnchor(a => addDays(a, dir));
-    else if (period === 'week') setAnchor(a => addDays(a, 7 * dir));
-    else setAnchor(a => new Date(a.getFullYear(), a.getMonth() + dir, 1));
-  }
-
   // Heatmap columns: hours for a day, dates for a week or month.
   const columns = period === 'day'
     ? HOUR_LABELS.map((label, i) => ({ key: i, label, sub: '' }))
@@ -134,37 +111,10 @@ export default function OccupancyReport({ blocks, exceptions }) {
   }
 
   const t = report.totals;
-  const dateValue = period === 'month'
-    ? `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, '0')}`
-    : toDateKey(anchor);
-
   return (
     <div className="occ-report">
       <div className="occ-controls">
-        <div className="occ-seg-buttons" role="group" aria-label="Period">
-          {['day', 'week', 'month'].map(p => (
-            <button key={p} type="button" className={period === p ? 'active' : ''} onClick={() => setPeriod(p)}>
-              {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-            </button>
-          ))}
-        </div>
-        <div className="occ-nav">
-          <button type="button" className="cta ghost" onClick={() => shift(-1)} aria-label="Previous">&larr;</button>
-          <input
-            type={period === 'month' ? 'month' : 'date'}
-            value={dateValue}
-            onChange={e => {
-              if (!e.target.value) return;
-              const [y, m, d] = e.target.value.split('-').map(Number);
-              setAnchor(new Date(y, m - 1, d || 1));
-            }}
-            aria-label="Pick a date"
-          />
-          <button type="button" className="cta ghost" onClick={() => shift(1)} aria-label="Next">&rarr;</button>
-          <button type="button" className="cta ghost" onClick={() => setAnchor(new Date())}>
-            {period === 'day' ? 'Today' : period === 'week' ? 'This week' : 'This month'}
-          </button>
-        </div>
+        <PeriodControls period={period} setPeriod={setPeriod} anchor={anchor} setAnchor={setAnchor} />
         <label className="occ-check"><input type="checkbox" checked={includeBranches} onChange={e => setIncludeBranches(e.target.checked)} /> Include other branches</label>
         <label className="occ-check"><input type="checkbox" checked={sortByPct} onChange={e => setSortByPct(e.target.checked)} /> Busiest first</label>
         <button type="button" className="cta ghost occ-export" onClick={exportExcel}>Export to Excel</button>
