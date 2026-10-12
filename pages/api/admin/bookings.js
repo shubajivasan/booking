@@ -5,6 +5,7 @@ import { roomName, minutesToLabel, BOOKABLE_ROOMS } from '../../../lib/schedule'
 import { slotsLabel } from '../../../lib/bookingEmails';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 import { classesOverlapping, classesOverlappingSlots, listForMessage } from '../../../lib/classConflicts';
+import { queueStaffChange } from '../../../lib/changeRequests';
 
 // The dashboard shows back-to-back 30-min slot rows of the same booking as
 // ONE entry, so Remove and Reschedule act on all of that entry's rows
@@ -56,9 +57,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ bookings: data });
   }
 
-  if (user.role === 'staff') {
-    return res.status(403).json({ error: 'Only an admin can change a booking.' });
-  }
+  // Staff: reschedule / cancel becomes a request an admin approves.
+  if (user.role === 'staff') return queueStaffChange(req, res, user, 'bookings');
 
   if (req.method === 'DELETE') {
     const ids = idList(req.body);
