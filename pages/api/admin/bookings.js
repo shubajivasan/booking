@@ -6,6 +6,7 @@ import { slotsLabel } from '../../../lib/bookingEmails';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 import { classesOverlapping, classesOverlappingSlots, listForMessage } from '../../../lib/classConflicts';
 import { queueStaffChange } from '../../../lib/changeRequests';
+import { fetchAll } from '../../../lib/fetchAll';
 
 // The dashboard shows back-to-back 30-min slot rows of the same booking as
 // ONE entry, so Remove and Reschedule act on all of that entry's rows
@@ -46,12 +47,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD), or pass all=true.' });
     }
 
-    const { data, error } = await supabaseAdmin
+    // Page by page: a month of 30-minute slots can be more than 1,000 rows.
+    const { data, error } = await fetchAll(() => supabaseAdmin
       .from('bookings')
       .select('*')
       .gte('date', from)
       .lte('date', to)
-      .eq('status', 'confirmed');
+      .eq('status', 'confirmed')
+      .order('date').order('hour').order('id'));
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ bookings: data });
