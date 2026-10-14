@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { ROOMS } from '../../../lib/schedule';
 import { checkRoom, findFreeRooms, teacherSchedule, searchTeachers } from '../../../lib/scheduleQuery';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
+import { fetchAll } from '../../../lib/fetchAll';
 
 // Admin "Assistant" — answers questions like "Is Room 10 free on Saturday at
 // 6pm?" or "Is Ansh free Friday 5–7pm?" in plain language.
@@ -133,10 +134,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Ask a question first.' });
   }
 
-  const { data: blocks, error: blocksError } = await supabaseAdmin.from('recurring_blocks').select('*');
+  const { data: blocks, error: blocksError } = await fetchAll(() => supabaseAdmin.from('recurring_blocks').select('*').order('id'));
   // One-off moves/cancellations of single sessions (empty if the table
   // hasn't been created yet).
-  const exRes = await supabaseAdmin.from('class_exceptions').select('*');
+  const exRes = await fetchAll(() => supabaseAdmin.from('class_exceptions').select('*').order('id'));
   const exceptions = exRes.error ? [] : (exRes.data || []);
   if (blocksError) return res.status(500).json({ error: blocksError.message });
 
