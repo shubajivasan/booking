@@ -6,6 +6,7 @@ import { roomName, minutesToLabel, timeToMinutes, CLASS_TYPES } from '../../../l
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 import { bookingsOverlappingClass, listForMessage } from '../../../lib/classConflicts';
 import { queueStaffChange } from '../../../lib/changeRequests';
+import { fetchAll } from '../../../lib/fetchAll';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -37,7 +38,8 @@ export default async function handler(req, res) {
   const canEditOrDelete = isBranchStaff || (user && user.role !== 'staff');
 
   if (req.method === 'GET') {
-    const { data, error } = await supabaseAdmin.from('recurring_blocks').select('*');
+    // Page by page: there are more than 1,000 classes across all branches.
+    const { data, error } = await fetchAll(() => supabaseAdmin.from('recurring_blocks').select('*').order('id'));
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ blocks: data });
   }
