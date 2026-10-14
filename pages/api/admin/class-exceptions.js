@@ -5,6 +5,7 @@ import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, wee
 import { loadClassesOnDate } from '../../../lib/classOccurrences';
 import { loadSpaceDetails } from '../../../lib/spaceDetails';
 import { queueStaffChange } from '../../../lib/changeRequests';
+import { fetchAll } from '../../../lib/fetchAll';
 
 // One-off changes to a single session of a regular class.
 //   GET                       → every one-off change (small table)
@@ -62,7 +63,7 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'Sign in to make changes.' });
 
   if (req.method === 'GET') {
-    const { data, error } = await supabaseAdmin.from('class_exceptions').select('*').limit(5000);
+    const { data, error } = await fetchAll(() => supabaseAdmin.from('class_exceptions').select('*').order('id'));
     if (error) {
       // Table not created yet: behave as "no one-off changes".
       if (error.code === '42P01' || /class_exceptions/.test(error.message || '')) {
