@@ -1050,3 +1050,6 @@ button.cta.danger:disabled{ opacity:0.4; cursor:not-allowed; }
 .access-edit{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
 .access-edit select{ padding:7px 10px; border-radius:7px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13px; }
 .access-edit input{ padding:7px 10px; border-radius:7px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13px; min-width:150px; }
+.teacher-add{ border:1px solid var(--line); border-radius:var(--radius); padding:10px 14px; background:var(--paper); }
+.teacher-add summary{ cursor:pointer; font-weight:600; font-size:14px; }
+.teacher-add form{ margin-top:12px; }

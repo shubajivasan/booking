@@ -29,13 +29,14 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     let { data, error } = await supabaseAdmin
       .from('staff_users')
-      .select('id, name, email, login_id, role, teacher_names, created_at')
+      .select('id, name, email, login_id, role, teacher_names, password_hash, created_at')
       .order('created_at', { ascending: true });
     if (error && /teacher_names/.test(error.message || '')) {
-      ({ data, error } = await supabaseAdmin.from('staff_users').select('id, name, email, role, created_at').order('created_at', { ascending: true }));
+      ({ data, error } = await supabaseAdmin.from('staff_users').select('id, name, email, role, password_hash, created_at').order('created_at', { ascending: true }));
     }
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ staff: data });
+    // Say whether a password is set, never the password (hash) itself.
+    return res.status(200).json({ staff: data.map(({ password_hash, ...u }) => ({ ...u, has_password: Boolean(password_hash) })) });
   }
 
   if (req.method === 'POST') {
@@ -44,9 +45,6 @@ export default async function handler(req, res) {
     const login_id = cleanLoginId(req.body?.login_id);
     if (login_id && !LOGIN_ID_RE.test(login_id)) {
       return res.status(400).json({ error: 'Login ID: 3\u201330 letters or numbers (dots, dashes and underscores allowed), no spaces.' });
-    }
-    if (login_id && !password) {
-      return res.status(400).json({ error: 'Set a password for this login ID.' });
     }
     const teacher_names = cleanNames(req.body?.teacher_names);
     if (role === 'teacher' && teacher_names.length === 0) {
