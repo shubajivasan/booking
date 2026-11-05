@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { roomName, BOOKABLE_ROOMS, slotOverlapsBlock, timeToMinutes, minutesToLabel } from '../../../lib/schedule';
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
   await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view booking requests.' });
-  if (user.role === 'staff') return res.status(403).json({ error: 'Only an admin can review booking requests.' });
+  if (!isAdmin(user)) return res.status(403).json({ error: 'Only an admin can review booking requests.' });
 
   if (req.method === 'GET') {
     const { data, error } = await supabaseAdmin

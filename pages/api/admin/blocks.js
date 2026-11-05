@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin, isTeacher, teachesBlock } from '../../../lib/adminAuth';
 import { isStaffAuthenticated } from '../../../lib/staffAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
@@ -35,13 +35,27 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Sign in to make changes.' });
   }
 
-  const canEditOrDelete = isBranchStaff || (user && user.role !== 'staff');
+  const canEditOrDelete = isBranchStaff || isAdmin(user);
 
   if (req.method === 'GET') {
     // Page by page: there are more than 1,000 classes across all branches.
     const { data, error } = await fetchAll(() => supabaseAdmin.from('recurring_blocks').select('*').order('id'));
     if (error) return res.status(500).json({ error: error.message });
+    // A teacher only ever receives their own classes.
+    if (isTeacher(user)) return res.status(200).json({ blocks: data.filter(b => teachesBlock(user, b)) });
     return res.status(200).json({ blocks: data });
+  }
+
+  // Teachers: the only change they can make is asking to rename the batch of
+  // one of their own classes. It becomes a change request for an admin.
+  if (isTeacher(user)) {
+    if (req.method !== 'PATCH') return res.status(403).json({ error: 'Teachers can only ask to rename a batch.' });
+    const { data: b } = await supabaseAdmin.from('recurring_blocks').select('*').eq('id', req.body?.id).maybeSingle();
+    if (!b || !teachesBlock(user, b)) return res.status(403).json({ error: 'You can only ask to rename your own classes.' });
+    const batch = String(req.body?.batch || '').trim().slice(0, 120);
+    if (!batch) return res.status(400).json({ error: 'Type the new batch name.' });
+    if (batch === (b.batch || '').trim()) return res.status(400).json({ error: 'That is already the batch name.' });
+    return queueStaffChange({ ...req, method: 'PATCH', body: { id: b.id, batch, rename_only: true } }, res, user, 'blocks');
   }
 
   if (req.method === 'POST') {
@@ -116,6 +130,25 @@ export default async function handler(req, res) {
       // Staff: the edit becomes a request an admin approves.
       if (user) return queueStaffChange(req, res, user, 'blocks');
       return res.status(403).json({ error: 'Only an admin can edit a regular class.' });
+    }
+
+    // Batch rename only (a teacher's approved request): change nothing else,
+    // so edits made to the class since the request aren't undone.
+    if (req.body?.rename_only) {
+      const batch = String(req.body.batch || '').trim().slice(0, 120);
+      const { data: b } = await supabaseAdmin.from('recurring_blocks').select('*').eq('id', req.body.id).maybeSingle();
+      if (!b) return res.status(404).json({ error: 'That class no longer exists.' });
+      if (!batch) return res.status(400).json({ error: 'The batch name can\u2019t be empty.' });
+      const label = [batch, b.teacher].filter(Boolean).join(' \u2014 ') || b.course || 'Class';
+      const { data, error } = await supabaseAdmin.from('recurring_blocks').update({ batch, label }).eq('id', b.id).select();
+      if (error) return res.status(500).json({ error: error.message });
+      if (user) {
+        await logActivity({
+          user, action: 'update', entity_type: 'class',
+          summary: `Renamed batch "${b.batch || '\u2014'}" \u2192 "${batch}" (${roomName(b.room_id)}, ${b.day_of_week} ${timeLabel(b.start_time)}\u2013${timeLabel(b.end_time)})`,
+        });
+      }
+      return res.status(200).json({ block: data[0] });
     }
     const { id, room_id, day_of_week, start_time, end_time, batch, teacher, course, start_date, end_date } = req.body || {};
     const class_type = cleanClassType(req.body?.class_type);

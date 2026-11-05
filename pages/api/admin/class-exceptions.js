@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin, isTeacher, teachesBlock } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { ROOMS, roomName, minutesToLabel, timeToMinutes, blockAppliesOnDate, weekdayOfDateKey, overlappingSpaces } from '../../../lib/schedule';
@@ -71,11 +71,17 @@ export default async function handler(req, res) {
       }
       return res.status(500).json({ error: error.message });
     }
+    if (isTeacher(user)) {
+      const { data: blocks } = await fetchAll(() => supabaseAdmin.from('recurring_blocks').select('id, teacher').order('id'));
+      const mine = new Set((blocks || []).filter(b => teachesBlock(user, b)).map(b => String(b.id)));
+      return res.status(200).json({ exceptions: data.filter(e => mine.has(String(e.block_id))) });
+    }
     return res.status(200).json({ exceptions: data });
   }
 
   // Staff: "This date only" changes become a request an admin approves.
   if (user.role === 'staff') return queueStaffChange(req, res, user, 'class-exceptions');
+  if (!isAdmin(user)) return res.status(403).json({ error: 'Only an admin can change a single session.' });
 
   if (req.method === 'POST') {
     const { block_id, original_date, status, note, force } = req.body || {};

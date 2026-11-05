@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin as isAdminRole } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { sendStudentConfirmation } from '../../../lib/sendAdminNotification';
@@ -54,7 +54,7 @@ async function notifyStaff(row, approved, decidedBy, reason) {
 export default async function handler(req, res) {
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in first.' });
-  const isAdmin = user.role !== 'staff';
+  const isAdmin = isAdminRole(user);
 
   if (req.method === 'GET') {
     const pendingRes = await supabaseAdmin.from('change_requests').select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(500);
@@ -69,7 +69,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ pending: pendingRes.data, recent: recent.data || [] });
     }
     const mine = await supabaseAdmin.from('change_requests').select('*').eq('requested_by', String(user.id)).order('created_at', { ascending: false }).limit(30);
-    return res.status(200).json({ pending: pendingRes.data, mine: mine.data || [] });
+    // Teachers see only their own requests (not other people's pending ones).
+    const pending = user.role === 'teacher' ? pendingRes.data.filter(r => String(r.requested_by) === String(user.id)) : pendingRes.data;
+    return res.status(200).json({ pending, mine: mine.data || [] });
   }
 
   if (req.method !== 'POST') return res.status(405).end();

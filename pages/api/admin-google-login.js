@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(401).json({ error: err.message });
   }
-  const { email, name } = google;
+  const { email, name, domainOk, domainError } = google;
 
   const { data: user, error } = await supabaseAdmin
     .from('staff_users').select('id, name').eq('email', email).maybeSingle();
@@ -32,6 +32,7 @@ export default async function handler(req, res) {
     setSessionCookie(res, user.id);
     return res.status(200).json({ status: 'ok', name: user.name });
   }
+  if (!domainOk) return res.status(401).json({ error: domainError });
 
   const { data: existing } = await supabaseAdmin
     .from('staff_access_requests').select('*').eq('email', email).maybeSingle();

@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin, isTeacher } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { logActivity } from '../../../lib/activityLog';
 import { roomName, minutesToLabel, BOOKABLE_ROOMS } from '../../../lib/schedule';
@@ -26,6 +26,12 @@ export default async function handler(req, res) {
   await loadSpaceDetails(); // names a super admin changed in the Spaces tab
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in as staff to view bookings.' });
+
+  // Teachers don't see bookings (students' names and contact details).
+  if (isTeacher(user)) {
+    if (req.method === 'GET') return res.status(200).json({ bookings: [] });
+    return res.status(403).json({ error: 'Teachers can\u2019t change bookings.' });
+  }
 
   if (req.method === 'GET') {
     const { from, to, all } = req.query;
@@ -62,6 +68,7 @@ export default async function handler(req, res) {
 
   // Staff: reschedule / cancel becomes a request an admin approves.
   if (user.role === 'staff') return queueStaffChange(req, res, user, 'bookings');
+  if (!isAdmin(user)) return res.status(403).json({ error: 'Only an admin can change a booking.' });
 
   if (req.method === 'DELETE') {
     const ids = idList(req.body);

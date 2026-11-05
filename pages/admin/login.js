@@ -63,7 +63,7 @@ export default function AdminLogin() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!email || !password) {
-      setError('Enter your email and password');
+      setError('Enter your login ID (or email) and password');
       return;
     }
     setLoading(true);
@@ -71,25 +71,25 @@ export default function AdminLogin() {
     const res = await fetch('/api/admin-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ login: email, password }),
     });
     const body = await res.json().catch(() => ({}));
     setLoading(false);
     if (res.ok) {
       router.push('/admin');
     } else {
-      setError(body.error || 'Wrong email or password. Try again.');
+      setError(body.error || 'Wrong login ID / email or password. Try again.');
     }
   }
 
   return (
     <>
       <Head>
-        <title>Staff login — Ajivasan Academy</title>
+        <title>Staff &amp; teacher login — Ajivasan Academy</title>
       </Head>
       <div style={{ maxWidth: 380, margin: '4rem auto', padding: '0 1.5rem' }}>
         <p className="brand-eyebrow">Ajivasan Academy of Performing Arts</p>
-        <h1 className="brand" style={{ marginBottom: '1.5rem' }}>Staff login</h1>
+        <h1 className="brand" style={{ marginBottom: '1.5rem' }}>Staff &amp; teacher login</h1>
 
         {GOOGLE_CLIENT_ID && (
           <div className="panel" style={{ textAlign: 'center' }}>
@@ -126,21 +126,25 @@ export default function AdminLogin() {
         )}
 
         {GOOGLE_CLIENT_ID && !showPassword && (
-          <p style={{ textAlign: 'center', fontSize: 12 }}>
-            <button type="button" className="link-button" onClick={() => setShowPassword(true)}>Sign in with email &amp; password instead</button>
-          </p>
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button type="button" className="cta ghost" style={{ width: '100%' }} onClick={() => setShowPassword(true)}>Sign in with login ID &amp; password</button>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 6 }}>Teachers: use the login ID and password the academy gave you.</p>
+          </div>
         )}
 
         {showPassword && (
           <form onSubmit={handleSubmit} className="panel">
             <div className="field">
-              <label htmlFor="admin-email">Email</label>
+              <label htmlFor="admin-email">Login ID or email</label>
               <input
                 id="admin-email"
-                type="email"
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="you@ajivasan.com"
+                placeholder="e.g. kalyani.j or you@ajivasan.com"
               />
             </div>
             <div className="field">
@@ -148,6 +152,7 @@ export default function AdminLogin() {
               <input
                 id="admin-password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Enter your password"

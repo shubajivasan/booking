@@ -357,9 +357,11 @@ export default function AdminDashboard() {
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [view]);
 
-  const canManage = Boolean(currentUser) && currentUser.role !== 'staff'; // admin or super_admin
+  const canManage = Boolean(currentUser) && (currentUser.role === 'admin' || currentUser.role === 'super_admin');
   const canManageStaff = Boolean(currentUser) && currentUser.role === 'super_admin';
   const isStaff = Boolean(currentUser) && currentUser.role === 'staff'; // changes go to an admin for approval
+  const isTeacher = Boolean(currentUser) && currentUser.role === 'teacher'; // sees only their own classes
+  const roleLabel = role => (role === 'super_admin' ? 'Super admin' : role === 'admin' ? 'Admin' : role === 'teacher' ? 'Teacher' : 'Staff');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [allBlocks, setAllBlocks] = useState([]); // all recurring_blocks, fetched once
   const [clashIncludeOnline, setClashIncludeOnline] = useState(false);
@@ -882,7 +884,9 @@ export default function AdminDashboard() {
   }, [activityEntries, activitySearch]);
 
   const [staffLoading, setStaffLoading] = useState(false);
-  const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'staff' });
+  const [staffForm, setStaffForm] = useState({ name: '', email: '', login_id: '', password: '', role: 'staff', teacher_names: [] });
+  const [editingAccess, setEditingAccess] = useState(null); // { id, role, teacher_names }
+  const [accessSaving, setAccessSaving] = useState(false);
   const [staffError, setStaffError] = useState('');
   const [staffSaving, setStaffSaving] = useState(false);
   const [staffDeletingId, setStaffDeletingId] = useState(null);
@@ -909,7 +913,7 @@ export default function AdminDashboard() {
   async function handleAccessRequest(r, action) {
     const role = accessRoles[r.id] || 'staff';
     const msg = action === 'approve'
-      ? `Give ${r.name || r.email} (${r.email}) access as ${role === 'admin' ? 'Admin' : 'Staff'}? They'll get an email.`
+      ? `Give ${r.name || r.email} (${r.email}) access as ${role === 'admin' ? 'Admin' : role === 'teacher' ? 'Teacher' : 'Staff'}? They'll get an email.`
       : `Decline ${r.name || r.email}'s access request? They'll get an email.`;
     if (!window.confirm(msg)) return;
     setAccessBusyId(r.id);
@@ -948,6 +952,22 @@ export default function AdminDashboard() {
     setNotice(body.message || 'Sent to an admin for approval.');
     fetchChangeRequests();
     setTimeout(() => setNotice(''), 7000);
+  }
+
+  // Teachers: ask an admin to rename one of their batches.
+  async function requestRename(entry) {
+    const current = entry.batch || '';
+    const next = window.prompt(`New batch name for ${current || 'this class'} (${entry.day_of_week} ${minutesToLabel(entry.startMinutes)}\u2013${minutesToLabel(entry.endMinutes)}):\n\nAn admin will approve it before it changes.`, current);
+    if (next === null) return;
+    if (!next.trim() || next.trim() === current.trim()) return;
+    const res = await fetch('/api/admin/blocks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: entry.id, batch: next.trim() }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 202) queued(body);
+    else alert(body.error || 'Could not send the request.');
   }
 
   const pendingBlockIds = useMemo(() => new Set(changeReqs.pending.filter(x => x.block_id).map(x => String(x.block_id))), [changeReqs]);
@@ -1057,11 +1077,17 @@ export default function AdminDashboard() {
   async function handleAddStaff(e) {
     e.preventDefault();
     setStaffError('');
-    if (!staffForm.name || !staffForm.email) {
-      setStaffError('Name and email are required.'); return;
+    if (!staffForm.name || (!staffForm.email && !staffForm.login_id)) {
+      setStaffError('Give a name, and an email or a login ID.'); return;
+    }
+    if (staffForm.login_id && !staffForm.password) {
+      setStaffError('Set a password for this login ID.'); return;
     }
     if (staffForm.password && staffForm.password.length < 8) {
       setStaffError('Password must be at least 8 characters (or leave it blank for Google sign-in only).'); return;
+    }
+    if (staffForm.role === 'teacher' && !(staffForm.teacher_names || []).length) {
+      setStaffError('Pick the teacher name(s) this account should see.'); return;
     }
     setStaffSaving(true);
     const res = await fetch('/api/admin/staff', {
@@ -1072,7 +1098,23 @@ export default function AdminDashboard() {
     const body = await res.json();
     setStaffSaving(false);
     if (!res.ok) { setStaffError(body.error || 'Could not add this staff member.'); return; }
-    setStaffForm({ name: '', email: '', password: '', role: 'staff' });
+    setStaffForm({ name: '', email: '', login_id: '', password: '', role: 'staff', teacher_names: [] });
+    fetchStaff();
+  }
+
+  async function saveAccess() {
+    if (editingAccess.role === 'teacher' && editingAccess.teacher_names.length === 0) { alert('Pick the teacher name(s) this account should see.'); return; }
+    if (editingAccess.new_password && editingAccess.new_password.length < 8) { alert('The new password must be at least 8 characters.'); return; }
+    setAccessSaving(true);
+    const res = await fetch('/api/admin/staff', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingAccess),
+    });
+    const body = await res.json().catch(() => ({}));
+    setAccessSaving(false);
+    if (!res.ok) { alert(body.error || 'Could not change access.'); return; }
+    setEditingAccess(null);
     fetchStaff();
   }
 
@@ -1532,7 +1574,12 @@ export default function AdminDashboard() {
                   : 'Regular class'}
           </span>
           {pendingBlockIds.has(String(e.id)) && <span className="sched-tag sched-tag-pending" title="A staff member asked for a change; waiting for an admin">Change requested</span>}
-          {currentUser && (
+          {isTeacher && !ex && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="cta ghost sched-remove" onClick={() => requestRename(e)} title="Ask an admin to rename this batch">Rename batch</button>
+            </div>
+          )}
+          {currentUser && !isTeacher && (
             <div style={{ display: 'flex', gap: 6 }}>
               {ex ? (
                 <>
@@ -1568,7 +1615,7 @@ export default function AdminDashboard() {
         <span className="sched-title">{e.studentName}{e.purpose ? ` — ${e.purpose}` : ''}</span>
         <span className="sched-tag sched-tag-booking">Booking</span>
         {(e.ids || [e.id]).some(x => pendingBookingIds.has(String(x))) && <span className="sched-tag sched-tag-pending" title="A staff member asked for a change; waiting for an admin">Change requested</span>}
-        {currentUser && (
+        {currentUser && !isTeacher && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {canManage && (
               <>
@@ -1613,7 +1660,7 @@ export default function AdminDashboard() {
               <span className="admin-user-name">
                 {currentUser.name}
                 <span className="admin-user-role">
-                  {currentUser.role === 'super_admin' ? 'Super admin' : currentUser.role === 'admin' ? 'Admin' : 'Staff'}
+                  {roleLabel(currentUser.role)}
                 </span>
               </span>
             )}
@@ -1625,7 +1672,7 @@ export default function AdminDashboard() {
           <button className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Day</button>
           <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
           <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
-          <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>
+          {!isTeacher && <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>All bookings</button>}
           {currentUser && (
             <button className={view === 'requests' ? 'active' : ''} onClick={() => setView('requests')}>
               Requests
@@ -1634,7 +1681,7 @@ export default function AdminDashboard() {
               )}
             </button>
           )}
-          <button className={view === 'assistant' ? 'active' : ''} onClick={() => setView('assistant')}>Assistant</button>
+          {!isTeacher && <button className={view === 'assistant' ? 'active' : ''} onClick={() => setView('assistant')}>Assistant</button>}
           {canManage && (
             <button className={view === 'clashes' ? 'active' : ''} onClick={() => setView('clashes')}>
               Clash check
@@ -1659,7 +1706,13 @@ export default function AdminDashboard() {
 
       <main>
         {notice && <div className="toast-notice" role="status">{notice}</div>}
-        {view !== 'reports' && (
+        {isTeacher && (
+          <div className="panel teacher-banner">
+            <b>Your classes</b> &middot; {(currentUser.teacher_names || []).length ? currentUser.teacher_names.join(', ') : 'no teacher name linked to your account yet \u2014 ask the admin'}
+            <br /><span>You can ask to rename a batch with <b>Rename batch</b>; an admin approves it before it changes. Other changes: please contact the academy.</span>
+          </div>
+        )}
+        {view !== 'reports' && !isTeacher && (
         <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
             <summary className={filterRooms.length ? 'has-selection' : ''}>
@@ -1720,7 +1773,7 @@ export default function AdminDashboard() {
         </div>
         )}
 
-        {showAddForm && view !== 'reports' && (
+        {showAddForm && view !== 'reports' && !isTeacher && (
           <form className="panel" onSubmit={handleAddClass}>
             <h3>{convertingBooking ? 'Convert booking to regular class' : 'New regular class'}</h3>
             {convertingBooking && (
@@ -2556,6 +2609,7 @@ export default function AdminDashboard() {
                       >
                         <option value="staff">Staff</option>
                         <option value="admin">Admin</option>
+                        <option value="teacher">Teacher (then set names below)</option>
                       </select>
                       <button className="cta" disabled={accessBusyId === r.id} onClick={() => handleAccessRequest(r, 'approve')}>
                         {accessBusyId === r.id ? 'Saving\u2026' : 'Approve'}
@@ -2576,23 +2630,40 @@ export default function AdminDashboard() {
                   <input id="staff-name" type="text" placeholder="e.g. Priya Sharma" value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, name: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label htmlFor="staff-email">Email</label>
-                  <input id="staff-email" type="email" placeholder="priya@ajivasan.com" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
+                  <label htmlFor="staff-email">Email {staffForm.role === 'teacher' ? '(optional)' : ''}</label>
+                  <input id="staff-email" type="email" placeholder={staffForm.role === 'teacher' ? 'Optional \u2014 not needed with a login ID' : 'priya@ajivasan.com'} value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="staff-loginid">Login ID {staffForm.role === 'teacher' ? '' : '(optional)'}</label>
+                  <input id="staff-loginid" type="text" autoCapitalize="none" spellCheck={false} placeholder="e.g. kalyani.j" value={staffForm.login_id} onChange={e => setStaffForm({ ...staffForm, login_id: e.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                </div>
+                <div className="field" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 10px' }}>With a login ID and password they sign in without email or Google. Letters, numbers, dots, dashes.</p>
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
                   <label htmlFor="staff-password">Password</label>
-                  <input id="staff-password" type="password" placeholder="Optional \u2014 blank = Google sign-in only" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+                  <input id="staff-password" type="text" autoComplete="new-password" placeholder={staffForm.login_id ? 'At least 8 characters' : 'Optional \u2014 blank = Google sign-in only'} value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
                 </div>
                 <div className="field">
                   <label htmlFor="staff-role">Access level</label>
                   <select id="staff-role" value={staffForm.role} onChange={e => setStaffForm({ ...staffForm, role: e.target.value })}>
                     <option value="staff">Staff — can only add a regular class</option>
                     <option value="admin">Admin — can edit/remove classes and bookings</option>
+                    <option value="teacher">Teacher — sees only their own classes</option>
                   </select>
                 </div>
               </div>
+              {staffForm.role === 'teacher' && (
+                <div className="field">
+                  <label>Teacher name(s) in the schedule</label>
+                  <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={staffForm.teacher_names || []} onChange={v => setStaffForm({ ...staffForm, teacher_names: v })} />
+                  <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '6px 0 0' }}>The classes with these teacher names are the ones this person will see. Tick a shared name too (e.g. &ldquo;Shweta - Riya&rdquo;) if they teach it.</p>
+                </div>
+              )}
               <button className="cta" type="submit" disabled={staffSaving}>{staffSaving ? 'Adding…' : 'Add staff member'}</button>
             </form>
 
@@ -2606,15 +2677,37 @@ export default function AdminDashboard() {
                     <div className="meta">
                       <b>{s.name}</b>
                       <span className="status-pill" style={{ marginLeft: 8 }}>
-                        {s.role === 'super_admin' ? 'Super admin' : s.role === 'admin' ? 'Admin' : 'Staff'}
+                        {roleLabel(s.role)}
                       </span>
                       <br />
-                      {s.email}
+                      {[s.email, s.login_id ? `Login ID: ${s.login_id}` : null].filter(Boolean).join(' \u00b7 ')}
+                      {s.role === 'teacher' && (
+                        <><br /><span style={{ fontSize: 12 }}>Sees classes of: {(s.teacher_names || []).length ? s.teacher_names.join(', ') : <span style={{ color: 'var(--maroon)' }}>no names yet \u2014 click Change access</span>}</span></>
+                      )}
+                      {editingAccess && editingAccess.id === s.id && (
+                        <div className="access-edit">
+                          <select value={editingAccess.role} onChange={ev => setEditingAccess({ ...editingAccess, role: ev.target.value })} aria-label="Access level">
+                            <option value="staff">Staff</option>
+                            <option value="admin">Admin</option>
+                            <option value="teacher">Teacher</option>
+                          </select>
+                          {editingAccess.role === 'teacher' && (
+                            <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={editingAccess.teacher_names} onChange={v => setEditingAccess({ ...editingAccess, teacher_names: v })} />
+                          )}
+                          <input type="text" aria-label="Login ID" placeholder="Login ID" autoCapitalize="none" spellCheck={false} value={editingAccess.login_id} onChange={ev => setEditingAccess({ ...editingAccess, login_id: ev.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                          <input type="text" aria-label="New password" autoComplete="new-password" placeholder="New password (leave blank to keep)" value={editingAccess.new_password} onChange={ev => setEditingAccess({ ...editingAccess, new_password: ev.target.value })} />
+                          <button className="cta" disabled={accessSaving} onClick={saveAccess}>{accessSaving ? 'Saving\u2026' : 'Save'}</button>
+                          <button className="cta ghost" disabled={accessSaving} onClick={() => setEditingAccess(null)}>Cancel</button>
+                        </div>
+                      )}
                     </div>
-                    {s.role !== 'super_admin' && (
-                      <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
-                        {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
-                      </button>
+                    {s.role !== 'super_admin' && s.id !== currentUser?.id && (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="cta ghost sched-remove" onClick={() => setEditingAccess({ id: s.id, role: s.role, teacher_names: s.teacher_names || [], login_id: s.login_id || '', new_password: '' })}>Change access</button>
+                        <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
+                          {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
