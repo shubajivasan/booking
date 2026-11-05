@@ -1072,16 +1072,21 @@ export default function AdminDashboard() {
       .catch(() => setStaffLoading(false));
   }
 
-  useEffect(() => { if (view === 'staff') fetchStaff(); }, [view]);
+  useEffect(() => {
+    if (view === 'staff' || view === 'teachers') fetchStaff();
+    // Each tab's add form starts as the right kind of account.
+    if (view === 'staff' && staffForm.role === 'teacher') setStaffForm(f => ({ ...f, role: 'staff', teacher_names: [] }));
+    if (view === 'teachers') setStaffForm(f => ({ ...f, role: 'teacher' }));
+    setStaffError('');
+  }, [view]);
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [teacherFilter, setTeacherFilter] = useState('all'); // all | ready | nopassword
 
   async function handleAddStaff(e) {
     e.preventDefault();
     setStaffError('');
     if (!staffForm.name || (!staffForm.email && !staffForm.login_id)) {
       setStaffError('Give a name, and an email or a login ID.'); return;
-    }
-    if (staffForm.login_id && !staffForm.password) {
-      setStaffError('Set a password for this login ID.'); return;
     }
     if (staffForm.password && staffForm.password.length < 8) {
       setStaffError('Password must be at least 8 characters (or leave it blank for Google sign-in only).'); return;
@@ -1100,6 +1105,55 @@ export default function AdminDashboard() {
     if (!res.ok) { setStaffError(body.error || 'Could not add this staff member.'); return; }
     setStaffForm({ name: '', email: '', login_id: '', password: '', role: 'staff', teacher_names: [] });
     fetchStaff();
+  }
+
+  // One account in the Staff or Teachers list, with its Change access editor.
+  function renderAccountRow(s) {
+    const canSignIn = s.has_password || Boolean(s.email);
+    return (
+                  <div className="booking-row" key={s.id}>
+                    <div className="meta">
+                      <b>{s.name}</b>
+                      <span className="status-pill" style={{ marginLeft: 8 }}>
+                        {roleLabel(s.role)}
+                      </span>
+                      {s.role === 'teacher' && (
+                        <span className={`status-pill ${canSignIn ? 'status-confirmed' : 'status-rejected'}`} style={{ marginLeft: 6 }}>
+                          {canSignIn ? 'Can sign in' : 'No password yet'}
+                        </span>
+                      )}
+                      <br />
+                      {[s.email, s.login_id ? `Login ID: ${s.login_id}` : null].filter(Boolean).join(' \u00b7 ')}
+                      {s.role === 'teacher' && (
+                        <><br /><span style={{ fontSize: 12 }}>Sees classes of: {(s.teacher_names || []).length ? s.teacher_names.join(', ') : <span style={{ color: 'var(--maroon)' }}>no names yet \u2014 click Change access</span>}</span></>
+                      )}
+                      {editingAccess && editingAccess.id === s.id && (
+                        <div className="access-edit">
+                          <select value={editingAccess.role} onChange={ev => setEditingAccess({ ...editingAccess, role: ev.target.value })} aria-label="Access level">
+                            <option value="staff">Staff</option>
+                            <option value="admin">Admin</option>
+                            <option value="teacher">Teacher</option>
+                          </select>
+                          {editingAccess.role === 'teacher' && (
+                            <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={editingAccess.teacher_names} onChange={v => setEditingAccess({ ...editingAccess, teacher_names: v })} />
+                          )}
+                          <input type="text" aria-label="Login ID" placeholder="Login ID" autoCapitalize="none" spellCheck={false} value={editingAccess.login_id} onChange={ev => setEditingAccess({ ...editingAccess, login_id: ev.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                          <input type="text" aria-label="New password" autoComplete="new-password" placeholder="New password (leave blank to keep)" value={editingAccess.new_password} onChange={ev => setEditingAccess({ ...editingAccess, new_password: ev.target.value })} />
+                          <button className="cta" disabled={accessSaving} onClick={saveAccess}>{accessSaving ? 'Saving\u2026' : 'Save'}</button>
+                          <button className="cta ghost" disabled={accessSaving} onClick={() => setEditingAccess(null)}>Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                    {s.role !== 'super_admin' && s.id !== currentUser?.id && (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="cta ghost sched-remove" onClick={() => setEditingAccess({ id: s.id, role: s.role, teacher_names: s.teacher_names || [], login_id: s.login_id || '', new_password: '' })}>{s.role === 'teacher' ? 'Edit' : 'Change access'}</button>
+                        <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
+                          {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+    );
   }
 
   async function saveAccess() {
@@ -1701,6 +1755,9 @@ export default function AdminDashboard() {
               Staff{accessRequests.length > 0 && <span className="tab-badge">{accessRequests.length}</span>}
             </button>
           )}
+          {canManageStaff && (
+            <button className={view === 'teachers' ? 'active' : ''} onClick={() => setView('teachers')}>Teachers</button>
+          )}
         </nav>
       </header>
 
@@ -1712,7 +1769,7 @@ export default function AdminDashboard() {
             <br /><span>You can ask to rename a batch with <b>Rename batch</b>; an admin approves it before it changes. Other changes: please contact the academy.</span>
           </div>
         )}
-        {view !== 'reports' && !isTeacher && (
+        {!['reports', 'staff', 'teachers', 'spaces'].includes(view) && !isTeacher && (
         <div className="panel no-print filter-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <details className="room-multiselect">
             <summary className={filterRooms.length ? 'has-selection' : ''}>
@@ -1773,7 +1830,7 @@ export default function AdminDashboard() {
         </div>
         )}
 
-        {showAddForm && view !== 'reports' && !isTeacher && (
+        {showAddForm && !['reports', 'staff', 'teachers', 'spaces'].includes(view) && !isTeacher && (
           <form className="panel" onSubmit={handleAddClass}>
             <h3>{convertingBooking ? 'Convert booking to regular class' : 'New regular class'}</h3>
             {convertingBooking && (
@@ -2653,7 +2710,7 @@ export default function AdminDashboard() {
                   <select id="staff-role" value={staffForm.role} onChange={e => setStaffForm({ ...staffForm, role: e.target.value })}>
                     <option value="staff">Staff — can only add a regular class</option>
                     <option value="admin">Admin — can edit/remove classes and bookings</option>
-                    <option value="teacher">Teacher — sees only their own classes</option>
+                    {view === 'teachers' && <option value="teacher">Teacher — sees only their own classes</option>}
                   </select>
                 </div>
               </div>
@@ -2672,50 +2729,88 @@ export default function AdminDashboard() {
               <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
             ) : (
               <div className="sched-list">
-                {staffList.map(s => (
-                  <div className="booking-row" key={s.id}>
-                    <div className="meta">
-                      <b>{s.name}</b>
-                      <span className="status-pill" style={{ marginLeft: 8 }}>
-                        {roleLabel(s.role)}
-                      </span>
-                      <br />
-                      {[s.email, s.login_id ? `Login ID: ${s.login_id}` : null].filter(Boolean).join(' \u00b7 ')}
-                      {s.role === 'teacher' && (
-                        <><br /><span style={{ fontSize: 12 }}>Sees classes of: {(s.teacher_names || []).length ? s.teacher_names.join(', ') : <span style={{ color: 'var(--maroon)' }}>no names yet \u2014 click Change access</span>}</span></>
-                      )}
-                      {editingAccess && editingAccess.id === s.id && (
-                        <div className="access-edit">
-                          <select value={editingAccess.role} onChange={ev => setEditingAccess({ ...editingAccess, role: ev.target.value })} aria-label="Access level">
-                            <option value="staff">Staff</option>
-                            <option value="admin">Admin</option>
-                            <option value="teacher">Teacher</option>
-                          </select>
-                          {editingAccess.role === 'teacher' && (
-                            <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={editingAccess.teacher_names} onChange={v => setEditingAccess({ ...editingAccess, teacher_names: v })} />
-                          )}
-                          <input type="text" aria-label="Login ID" placeholder="Login ID" autoCapitalize="none" spellCheck={false} value={editingAccess.login_id} onChange={ev => setEditingAccess({ ...editingAccess, login_id: ev.target.value.toLowerCase().replace(/\s+/g, '') })} />
-                          <input type="text" aria-label="New password" autoComplete="new-password" placeholder="New password (leave blank to keep)" value={editingAccess.new_password} onChange={ev => setEditingAccess({ ...editingAccess, new_password: ev.target.value })} />
-                          <button className="cta" disabled={accessSaving} onClick={saveAccess}>{accessSaving ? 'Saving\u2026' : 'Save'}</button>
-                          <button className="cta ghost" disabled={accessSaving} onClick={() => setEditingAccess(null)}>Cancel</button>
-                        </div>
-                      )}
-                    </div>
-                    {s.role !== 'super_admin' && s.id !== currentUser?.id && (
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="cta ghost sched-remove" onClick={() => setEditingAccess({ id: s.id, role: s.role, teacher_names: s.teacher_names || [], login_id: s.login_id || '', new_password: '' })}>Change access</button>
-                        <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
-                          {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {staffList.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No staff accounts yet.</p>}
+                {staffList.filter(s => s.role !== 'teacher').map(s => renderAccountRow(s))}
+                {staffList.filter(s => s.role !== 'teacher').length === 0 && <p style={{ color: 'var(--ink-soft)' }}>No staff accounts yet.</p>}
               </div>
             )}
           </div>
         )}
+        {view === 'teachers' && canManageStaff && (() => {
+          const teachers = staffList.filter(s => s.role === 'teacher');
+          const ready = teachers.filter(s => s.has_password || s.email).length;
+          const q = teacherSearch.trim().toLowerCase();
+          const shown = teachers
+            .filter(s => teacherFilter === 'all' || (teacherFilter === 'ready' ? (s.has_password || s.email) : !(s.has_password || s.email)))
+            .filter(s => !q || [s.name, s.login_id, s.email, ...(s.teacher_names || [])].some(v => String(v || '').toLowerCase().includes(q)))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          const linked = new Set(teachers.flatMap(s => (s.teacher_names || []).map(n => n.toLowerCase().replace(/[.\s]+/g, ' ').trim())));
+          const unlinked = teacherOptions.filter(n => !linked.has(n.toLowerCase().replace(/[.\s]+/g, ' ').trim()));
+          return (
+            <div className="panel">
+              <h3>Teachers</h3>
+              <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -6 }}>
+                Teacher accounts see only their own classes and can ask to rename a batch. They sign in at the login page with <b>Sign in with login ID &amp; password</b>.
+              </p>
+              <div className="occ-tiles" style={{ marginBottom: '1rem' }}>
+                <div className="occ-tile"><span className="occ-tile-label">Teacher accounts</span><span className="occ-num">{teachers.length}</span></div>
+                <div className="occ-tile"><span className="occ-tile-label">Can sign in</span><span className="occ-num">{ready}</span></div>
+                <div className="occ-tile"><span className="occ-tile-label">No password yet</span><span className="occ-num">{teachers.length - ready}</span></div>
+              </div>
+              {unlinked.length > 0 && (
+                <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                  Teacher names in the schedule with no account: {unlinked.join(', ')}.
+                </p>
+              )}
+              <details className="teacher-add" open={staffForm.role === 'teacher' && Boolean(staffForm.name)}>
+                <summary>+ Add a teacher</summary>
+                {staffError && <div className="inline-error">{staffError}</div>}
+                <form onSubmit={handleAddStaff} onFocus={() => staffForm.role !== 'teacher' && setStaffForm({ ...staffForm, role: 'teacher' })}>
+                  <div className="field-row">
+                    <div className="field">
+                      <label htmlFor="t-name">Name</label>
+                      <input id="t-name" type="text" placeholder="e.g. Kalyani Joglekar" value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, role: 'teacher', name: e.target.value })} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="t-login">Login ID</label>
+                      <input id="t-login" type="text" autoCapitalize="none" spellCheck={false} placeholder="e.g. kalyani.joglekar" value={staffForm.login_id} onChange={e => setStaffForm({ ...staffForm, role: 'teacher', login_id: e.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                    </div>
+                  </div>
+                  <div className="field-row">
+                    <div className="field">
+                      <label htmlFor="t-password">Password</label>
+                      <input id="t-password" type="text" autoComplete="new-password" placeholder="At least 8 characters (or set later)" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, role: 'teacher', password: e.target.value })} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="t-email">Email (optional)</label>
+                      <input id="t-email" type="email" placeholder="Only if they'll use Google" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, role: 'teacher', email: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Teacher name(s) in the schedule</label>
+                    <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={staffForm.teacher_names || []} onChange={v => setStaffForm({ ...staffForm, role: 'teacher', teacher_names: v })} />
+                  </div>
+                  <button className="cta" type="submit" disabled={staffSaving}>{staffSaving ? 'Adding\u2026' : 'Add teacher'}</button>
+                </form>
+              </details>
+              <div className="occ-controls" style={{ margin: '1rem 0 .6rem' }}>
+                <input className="ta-search" type="text" placeholder="Search name or login ID…" value={teacherSearch} onChange={e => setTeacherSearch(e.target.value)} />
+                <select value={teacherFilter} onChange={e => setTeacherFilter(e.target.value)} aria-label="Show">
+                  <option value="all">All teachers ({teachers.length})</option>
+                  <option value="nopassword">No password yet ({teachers.length - ready})</option>
+                  <option value="ready">Can sign in ({ready})</option>
+                </select>
+              </div>
+              {staffLoading ? (
+                <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+              ) : (
+                <div className="sched-list">
+                  {shown.map(s => renderAccountRow(s))}
+                  {shown.length === 0 && <p style={{ color: 'var(--ink-soft)' }}>{teachers.length ? 'No teachers match.' : 'No teacher accounts yet.'}</p>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </main>
 
       {editingBooking && (
