@@ -884,7 +884,7 @@ export default function AdminDashboard() {
   }, [activityEntries, activitySearch]);
 
   const [staffLoading, setStaffLoading] = useState(false);
-  const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '', role: 'staff', teacher_names: [] });
+  const [staffForm, setStaffForm] = useState({ name: '', email: '', login_id: '', password: '', role: 'staff', teacher_names: [] });
   const [editingAccess, setEditingAccess] = useState(null); // { id, role, teacher_names }
   const [accessSaving, setAccessSaving] = useState(false);
   const [staffError, setStaffError] = useState('');
@@ -1077,8 +1077,11 @@ export default function AdminDashboard() {
   async function handleAddStaff(e) {
     e.preventDefault();
     setStaffError('');
-    if (!staffForm.name || !staffForm.email) {
-      setStaffError('Name and email are required.'); return;
+    if (!staffForm.name || (!staffForm.email && !staffForm.login_id)) {
+      setStaffError('Give a name, and an email or a login ID.'); return;
+    }
+    if (staffForm.login_id && !staffForm.password) {
+      setStaffError('Set a password for this login ID.'); return;
     }
     if (staffForm.password && staffForm.password.length < 8) {
       setStaffError('Password must be at least 8 characters (or leave it blank for Google sign-in only).'); return;
@@ -1095,12 +1098,13 @@ export default function AdminDashboard() {
     const body = await res.json();
     setStaffSaving(false);
     if (!res.ok) { setStaffError(body.error || 'Could not add this staff member.'); return; }
-    setStaffForm({ name: '', email: '', password: '', role: 'staff', teacher_names: [] });
+    setStaffForm({ name: '', email: '', login_id: '', password: '', role: 'staff', teacher_names: [] });
     fetchStaff();
   }
 
   async function saveAccess() {
     if (editingAccess.role === 'teacher' && editingAccess.teacher_names.length === 0) { alert('Pick the teacher name(s) this account should see.'); return; }
+    if (editingAccess.new_password && editingAccess.new_password.length < 8) { alert('The new password must be at least 8 characters.'); return; }
     setAccessSaving(true);
     const res = await fetch('/api/admin/staff', {
       method: 'PATCH',
@@ -2626,14 +2630,23 @@ export default function AdminDashboard() {
                   <input id="staff-name" type="text" placeholder="e.g. Priya Sharma" value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, name: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label htmlFor="staff-email">Email</label>
-                  <input id="staff-email" type="email" placeholder="priya@ajivasan.com" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
+                  <label htmlFor="staff-email">Email {staffForm.role === 'teacher' ? '(optional)' : ''}</label>
+                  <input id="staff-email" type="email" placeholder={staffForm.role === 'teacher' ? 'Optional \u2014 not needed with a login ID' : 'priya@ajivasan.com'} value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} />
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="staff-loginid">Login ID {staffForm.role === 'teacher' ? '' : '(optional)'}</label>
+                  <input id="staff-loginid" type="text" autoCapitalize="none" spellCheck={false} placeholder="e.g. kalyani.j" value={staffForm.login_id} onChange={e => setStaffForm({ ...staffForm, login_id: e.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                </div>
+                <div className="field" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 10px' }}>With a login ID and password they sign in without email or Google. Letters, numbers, dots, dashes.</p>
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
                   <label htmlFor="staff-password">Password</label>
-                  <input id="staff-password" type="password" placeholder="Optional \u2014 blank = Google sign-in only" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
+                  <input id="staff-password" type="text" autoComplete="new-password" placeholder={staffForm.login_id ? 'At least 8 characters' : 'Optional \u2014 blank = Google sign-in only'} value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} />
                 </div>
                 <div className="field">
                   <label htmlFor="staff-role">Access level</label>
@@ -2667,7 +2680,7 @@ export default function AdminDashboard() {
                         {roleLabel(s.role)}
                       </span>
                       <br />
-                      {s.email}
+                      {[s.email, s.login_id ? `Login ID: ${s.login_id}` : null].filter(Boolean).join(' \u00b7 ')}
                       {s.role === 'teacher' && (
                         <><br /><span style={{ fontSize: 12 }}>Sees classes of: {(s.teacher_names || []).length ? s.teacher_names.join(', ') : <span style={{ color: 'var(--maroon)' }}>no names yet \u2014 click Change access</span>}</span></>
                       )}
@@ -2681,6 +2694,8 @@ export default function AdminDashboard() {
                           {editingAccess.role === 'teacher' && (
                             <MultiSelectFilter allLabel="Pick teacher names" noun="names" options={teacherOptions} selected={editingAccess.teacher_names} onChange={v => setEditingAccess({ ...editingAccess, teacher_names: v })} />
                           )}
+                          <input type="text" aria-label="Login ID" placeholder="Login ID" autoCapitalize="none" spellCheck={false} value={editingAccess.login_id} onChange={ev => setEditingAccess({ ...editingAccess, login_id: ev.target.value.toLowerCase().replace(/\s+/g, '') })} />
+                          <input type="text" aria-label="New password" autoComplete="new-password" placeholder="New password (leave blank to keep)" value={editingAccess.new_password} onChange={ev => setEditingAccess({ ...editingAccess, new_password: ev.target.value })} />
                           <button className="cta" disabled={accessSaving} onClick={saveAccess}>{accessSaving ? 'Saving\u2026' : 'Save'}</button>
                           <button className="cta ghost" disabled={accessSaving} onClick={() => setEditingAccess(null)}>Cancel</button>
                         </div>
@@ -2688,7 +2703,7 @@ export default function AdminDashboard() {
                     </div>
                     {s.role !== 'super_admin' && s.id !== currentUser?.id && (
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="cta ghost sched-remove" onClick={() => setEditingAccess({ id: s.id, role: s.role, teacher_names: s.teacher_names || [] })}>Change access</button>
+                        <button className="cta ghost sched-remove" onClick={() => setEditingAccess({ id: s.id, role: s.role, teacher_names: s.teacher_names || [], login_id: s.login_id || '', new_password: '' })}>Change access</button>
                         <button className="cta ghost sched-remove" onClick={() => handleDeleteStaff(s.id)} disabled={staffDeletingId === s.id}>
                           {staffDeletingId === s.id ? 'Removing…' : 'Remove'}
                         </button>
