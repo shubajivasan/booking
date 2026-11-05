@@ -1,10 +1,10 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isAdmin } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export default async function handler(req, res) {
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view the activity log.' });
-  if (user.role === 'staff') {
+  if (!isAdmin(user)) {
     return res.status(403).json({ error: 'Only an admin can view the activity log.' });
   }
   if (req.method !== 'GET') return res.status(405).end();

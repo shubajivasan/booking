@@ -8,7 +8,7 @@ import { esc } from '../../../lib/bookingEmails';
 //   GET                                      → pending requests
 //   POST { id, action: 'approve', role }     → create the staff account (role 'staff' or 'admin')
 //   POST { id, action: 'reject' }            → decline
-const VALID_ROLES = ['admin', 'staff'];
+const VALID_ROLES = ['admin', 'staff', 'teacher'];
 
 export default async function handler(req, res) {
   const user = await getAdminUser(req);
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
         subject: 'You now have access to the Ajivasan schedule dashboard',
         html: `
           <p>Hi ${esc(request.name || '')},</p>
-          <p>Your access to the Ajivasan schedule dashboard has been approved (${role === 'admin' ? 'Admin' : 'Staff'}).</p>
+          <p>Your access to the Ajivasan schedule dashboard has been approved (${role === 'admin' ? 'Admin' : role === 'teacher' ? 'Teacher' : 'Staff'}).</p>
           <p><a href="${loginUrl}">Sign in with Google here</a> using ${esc(request.email)}.</p>
         `,
       });

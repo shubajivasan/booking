@@ -1,4 +1,4 @@
-import { getAdminUser } from '../../../lib/adminAuth';
+import { getAdminUser, isTeacher } from '../../../lib/adminAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { ROOMS } from '../../../lib/schedule';
 import { checkRoom, findFreeRooms, teacherSchedule, searchTeachers } from '../../../lib/scheduleQuery';
@@ -120,6 +120,8 @@ export default async function handler(req, res) {
 
   const user = await getAdminUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to use the assistant.' });
+  // The assistant reads the whole schedule, so it's for staff and admins only.
+  if (isTeacher(user)) return res.status(403).json({ error: 'The assistant isn\u2019t available for teacher accounts.' });
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'The assistant isn\'t set up yet: add ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, then redeploy.' });
