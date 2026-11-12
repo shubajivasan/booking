@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { requiresApproval, aapaRoomId, roomName as spaceName, hallParts, applySpaceNames } from '../lib/schedule';
+import { requiresApproval, aapaRoomId, roomName as spaceName, hallParts, applySpaceNames, AAPA_PART_NAMES } from '../lib/schedule';
 import { mergeSpaceDetails } from '../lib/spaces';
 
 
@@ -367,7 +367,7 @@ export default function BookingApp() {
               <div>
                 <h2>{room.name}</h2>
                 <p className="room-type">
-                  {room.type} &middot; {room.partitioned ? `seats ${Math.round(room.capacity / 4)} per partition, ${room.capacity} whole hall` : `seats ${room.capacity}`}
+                  {room.type} &middot; {room.partitioned ? `seats ${Math.round(room.capacity / 4)} per space, ${room.capacity} whole hall` : `seats ${room.capacity}`}
                 </p>
               </div>
               <div className="detail-code-badge">{room.code}</div>
@@ -382,9 +382,9 @@ export default function BookingApp() {
             )}
             {room.partitioned && (
               <div className="panel" style={{ marginBottom: '1.6rem' }}>
-                <h3>Choose partitions</h3>
+                <h3>Choose spaces</h3>
                 <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink-soft)' }}>
-                  Pick one or more partitions, or the whole hall. Times are shown as available only when every partition you picked is free.
+                  Pick one or more of {Object.values(AAPA_PART_NAMES).join(', ')}, or the whole hall. Times are shown as available only when every space you picked is free.
                 </p>
                 <div className="hall-picker">
                   {['1', '2', '3', '4'].map(p => (
@@ -395,7 +395,7 @@ export default function BookingApp() {
                       aria-pressed={hallSelection.includes(p)}
                       onClick={() => toggleHallPart(p)}
                     >
-                      Partition {p}
+                      {AAPA_PART_NAMES[p]}
                     </button>
                   ))}
                   <button
@@ -439,7 +439,7 @@ export default function BookingApp() {
               </div>
               <h3 style={{ marginTop: '1.6rem' }}>Available times</h3>
               {room.partitioned && !bookingRoomId ? (
-                <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Choose at least one partition above to see available times.</p>
+                <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Choose at least one space above (Cube, Jam Pad, Stage 1, Stage 2) to see available times.</p>
               ) : loadingSlots ? (
                 <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Checking availability&hellip;</p>
               ) : availabilityError ? (

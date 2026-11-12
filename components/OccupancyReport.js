@@ -228,7 +228,7 @@ export default function OccupancyReport({ blocks, exceptions }) {
       </div>
 
       <p className="occ-note">
-        How it&rsquo;s worked out: each space is open 12 hours a day (9am&ndash;9pm), every day of the period. Time is &ldquo;used&rdquo; when a regular class (with one-off moves and cancellations applied) or a confirmed booking covers it; overlaps count once. Pending requests aren&rsquo;t counted. AAPA Hall counts its 4 partitions separately (one partition all day = 25%). Branches with 2 rooms count both rooms.
+        How it&rsquo;s worked out: each space is open 12 hours a day (9am&ndash;9pm), every day of the period. Time is &ldquo;used&rdquo; when a regular class (with one-off moves and cancellations applied) or a confirmed booking covers it; overlaps count once. Pending requests aren&rsquo;t counted. AAPA Hall counts its 4 spaces (Cube, Jam Pad, Stage 1, Stage 2) separately (one space all day = 25%). Branches with 2 rooms count both rooms.
       </p>
     </div>
   );

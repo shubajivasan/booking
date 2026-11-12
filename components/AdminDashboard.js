@@ -2597,7 +2597,7 @@ export default function AdminDashboard() {
                         </div>
                         {card.partitioned && (
                           <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: -4 }}>
-                            Each partition shows a quarter of the whole-hall seats. A new name also renames the partitions (e.g. &ldquo;{f.name || 'AAPA Hall'} &ndash; Partition 1&rdquo;).
+                            Each partition shows a quarter of the whole-hall seats. A new name also renames the partitions (e.g. &ldquo;{f.name || 'AAPA Hall'} &ndash; Cube&rdquo;).
                           </p>
                         )}
                         {Number(f.price_per_hour) === 0 && (
@@ -2619,7 +2619,7 @@ export default function AdminDashboard() {
                         <b>{card.name}</b>
                         {row && <span className="status-pill status-confirmed" style={{ marginLeft: 8 }}>Edited</span>}
                         <br />
-                        {card.type} &middot; {card.partitioned ? `seats ${Math.round(card.capacity / 4)} per partition, ${card.capacity} whole hall` : `seats ${card.capacity}`} &middot; {card.price ? `\u20b9${card.price}/hr` : 'price not set'}
+                        {card.type} &middot; {card.partitioned ? `seats ${Math.round(card.capacity / 4)} per space, ${card.capacity} whole hall` : `seats ${card.capacity}`} &middot; {card.price ? `\u20b9${card.price}/hr` : 'price not set'}
                         <br />
                         <span style={{ fontSize: 12 }}>{card.desc}</span>
                         {row && row.updated_by && (
