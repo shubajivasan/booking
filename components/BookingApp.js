@@ -192,6 +192,15 @@ export default function BookingApp() {
     );
   }
 
+  // "Full day" = every free 30-minute slot from 9am to 9pm in one tap. Times
+  // already taken by a booking or a regular class are skipped. Tapping it
+  // again clears the selection.
+  const freeSlots = SLOT_STARTS.filter(s => !bookedSlots.includes(s) && !classSlots[s]);
+  const fullDaySelected = freeSlots.length > 0 && freeSlots.every(s => selectedSlots.includes(s));
+  function toggleFullDay() {
+    setSelectedSlots(fullDaySelected ? [] : freeSlots);
+  }
+
   function validateForm() {
     const next = {};
     if (!form.name.trim()) next.name = 'Enter your name';
@@ -445,6 +454,25 @@ export default function BookingApp() {
               ) : availabilityError ? (
                 <div className="inline-error">{availabilityError}</div>
               ) : (
+                <>
+                <div className="full-day-row">
+                  <button
+                    type="button"
+                    className={`hall-part hall-whole full-day-btn ${fullDaySelected ? 'selected' : ''}`}
+                    disabled={freeSlots.length === 0}
+                    aria-pressed={fullDaySelected}
+                    onClick={toggleFullDay}
+                  >
+                    {fullDaySelected ? 'Full day selected \u2713' : 'Book full day (9am\u20139pm)'}
+                  </button>
+                  <span className="full-day-note">
+                    {freeSlots.length === 0
+                      ? 'No free times left on this day.'
+                      : freeSlots.length < SLOT_STARTS.length
+                        ? `Some times are already taken, so full day picks only the free times (${durationLabel(freeSlots.length)}).`
+                        : 'Selects every slot from 9am to 9pm in one go.'}
+                  </span>
+                </div>
                 <div className="slot-board">
                   {SLOT_STARTS.map(start => {
                     const isBooked = bookedSlots.includes(start);
@@ -471,6 +499,7 @@ export default function BookingApp() {
                     );
                   })}
                 </div>
+                </>
               )}
               <div className="legend">
                 <span><span className="dot" style={{ background: 'var(--paper)', border: '1px solid var(--line)' }} />Open</span>
