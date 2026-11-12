@@ -1053,3 +1053,9 @@ button.cta.danger:disabled{ opacity:0.4; cursor:not-allowed; }
 .teacher-add{ border:1px solid var(--line); border-radius:var(--radius); padding:10px 14px; background:var(--paper); }
 .teacher-add summary{ cursor:pointer; font-weight:600; font-size:14px; }
 .teacher-add form{ margin-top:12px; }
+
+/* "Book full day" button above the time slots */
+.full-day-row{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .9rem; margin:.4rem 0 .9rem; }
+.full-day-btn{ width:auto; padding:10px 16px; }
+.full-day-btn:disabled{ opacity:.5; cursor:not-allowed; }
+.full-day-note{ font-size:13px; color:var(--ink-soft); }
