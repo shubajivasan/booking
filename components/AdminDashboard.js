@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   HOURS, DAY_NAMES, ROOMS, BOOKABLE_ROOMS, timeToMinutes, minutesToLabel, fmtHour,
@@ -1255,16 +1255,23 @@ export default function AdminDashboard() {
     return `${minutesToLabel(timeToMinutes(b.start_time))}\u2013${minutesToLabel(timeToMinutes(b.end_time))} \u00b7 ${who}${b.batch && b.course ? ` (${b.course})` : ''}${dates}`;
   }
 
+  // Only the latest request may fill the list. Clicking Next/Prev quickly
+  // sends several requests; an older one answering last used to overwrite the
+  // day on screen with another day's bookings (so a booking looked missing).
+  const bookingsReq = useRef(0);
   function fetchBookings() {
     setLoading(true);
     const from = toDateKey(rangeStart);
     const to = toDateKey(rangeEnd);
+    const reqId = ++bookingsReq.current;
     fetch(`/api/admin/bookings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       .then(r => r.json())
       .then(body => {
+        if (reqId !== bookingsReq.current) return; // a newer request is on its way
         setBookings(body.bookings || []);
         setLoading(false);
-      });
+      })
+      .catch(() => { if (reqId === bookingsReq.current) setLoading(false); });
   }
 
   async function handleDeleteBooking(entry) {
